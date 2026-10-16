@@ -157,3 +157,17 @@ CREATE POLICY "Audio Voice Notes are publicly accessible"
 CREATE POLICY "Audio Voice Notes can be uploaded"
     ON storage.objects FOR INSERT
     WITH CHECK (bucket_id = 'messme-audio');
+
+-- 10. Blocked Users Table
+CREATE TABLE IF NOT EXISTS public.blocked_users (
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    blocked_user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (user_id, blocked_user_id)
+);
+
+ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their blocked list"
+    ON public.blocked_users FOR ALL
+    USING (true);
+
