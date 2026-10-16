@@ -7,8 +7,13 @@ const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const localUrl = typeof window !== 'undefined' ? localStorage.getItem('messme_supabase_url') || '' : '';
 const localKey = typeof window !== 'undefined' ? localStorage.getItem('messme_supabase_key') || '' : '';
 
-export const SUPABASE_URL = localUrl || envUrl;
-export const SUPABASE_ANON_KEY = localKey || envKey;
+const rawUrl = localUrl || envUrl;
+const cleanUrl = (url: string): string => {
+  return url.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+};
+
+export const SUPABASE_URL = cleanUrl(rawUrl);
+export const SUPABASE_ANON_KEY = (localKey || envKey).trim();
 
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(
