@@ -38,9 +38,11 @@ export interface RealtimeEventPayload {
     | 'TYPING'
     | 'PRESENCE'
     | 'PROFILE_UPDATE'
-    | 'BLOCK_STATUS_UPDATE';
+    | 'BLOCK_STATUS_UPDATE'
+    | 'MESSAGES_READ';
   conversationId?: string;
   senderId?: string;
+  readerId?: string;
   senderUsername?: string;
   message?: Message;
   reaction?: MessageReaction;
@@ -133,20 +135,19 @@ export function ensureSupabaseRealtime() {
 
         if (!row || !row.id) return;
 
-        // Fast-path sender info from cache
+        // Fast-path sender info from cache or query profile
         let sender = userProfileCache.get(row.sender_id) || getAllStoredUsers().find((u) => u.id === row.sender_id);
         if (!sender) {
-          getUserProfileById(row.sender_id).then((p) => {
-            if (p) userProfileCache.set(row.sender_id, p);
-          });
+          sender = (await getUserProfileById(row.sender_id)) || undefined;
+          if (sender) userProfileCache.set(row.sender_id, sender);
         }
 
         const newMsg: Message = {
           id: row.id,
           conversationId: row.conversation_id,
           senderId: row.sender_id,
-          senderUsername: sender?.username || 'user',
-          senderDisplayName: sender?.displayName || sender?.username || 'User',
+          senderUsername: sender?.username || '',
+          senderDisplayName: sender?.displayName || sender?.username || '',
           senderAvatarUrl: sender?.avatarUrl,
           content: row.content,
           type: (row.type as MessageType) || 'text',
@@ -309,6 +310,22 @@ export function ensureSupabaseRealtime() {
           });
         } catch (e) {
           console.error('Error in typing broadcast handler:', e);
+        }
+      });
+    });
+
+    // 5. Listen for read receipts across devices
+    supabaseChannelInstance.on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
+      if (!payload || !payload.conversationId) return;
+      listeners.forEach((l) => {
+        try {
+          l({
+            type: 'MESSAGES_READ',
+            conversationId: payload.conversationId,
+            readerId: payload.readerId,
+          });
+        } catch (e) {
+          console.error('Error in read receipt broadcast handler:', e);
         }
       });
     });
@@ -1534,3 +1551,66 @@ export function broadcastTypingStatus(conversationId: string, user: UserProfile,
     }
   }
 }
+
+export function markConversationMessagesAsRead(conversationId: string, currentUserId: string): boolean {
+  const messagesMap = getAllStoredMessages();
+  const list = messagesMap[conversationId];
+  if (!list || list.length === 0) return false;
+
+  let hasUnread = false;
+  const updatedList = list.map((msg) => {
+    // If sent by someone else and not yet marked as read, mark it as read
+    if (msg.senderId !== currentUserId && msg.status !== 'read') {
+      hasUnread = true;
+      return { ...msg, status: 'read' as const };
+    }
+    return msg;
+  });
+
+  if (!hasUnread) return false;
+
+  messagesMap[conversationId] = updatedList;
+  saveStoredMessages(messagesMap);
+
+  // Broadcast locally and to other tabs
+  broadcastEvent({
+    type: 'MESSAGES_READ',
+    conversationId,
+    readerId: currentUserId,
+  });
+
+  // Broadcast to other devices via Supabase channel
+  if (supabaseChannelInstance) {
+    try {
+      supabaseChannelInstance.send({
+        type: 'broadcast',
+        event: 'read_receipt',
+        payload: {
+          conversationId,
+          readerId: currentUserId,
+        },
+      });
+    } catch (e) {
+      console.warn('Failed to broadcast read receipt via Supabase:', e);
+    }
+  }
+
+  // Also update Supabase in background if supported
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    (async () => {
+      try {
+        await supabase
+          .from('messages')
+          .update({ is_read: true })
+          .eq('conversation_id', conversationId)
+          .neq('sender_id', currentUserId);
+      } catch {
+        // Silent catch if is_read column doesn't exist
+      }
+    })();
+  }
+
+  return true;
+}
+

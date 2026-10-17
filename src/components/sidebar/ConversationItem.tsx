@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pin, VolumeX, MoreVertical, Trash2, CheckCheck } from 'lucide-react';
+import { Pin, VolumeX, MoreVertical, Trash2, CheckCheck, Check } from 'lucide-react';
 import type { Conversation } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { useChat } from '../../context/useChat';
@@ -99,8 +99,14 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
             ) : conversation.lastMessage ? (
               <span className="flex items-center gap-1.5 truncate">
                 {currentUser && conversation.lastMessage.senderId === currentUser.id && (
-                  <span className="inline-flex items-center text-indigo-500 flex-shrink-0">
-                    <CheckCheck className="w-3.5 h-3.5 stroke-[2.2]" />
+                  <span className={`inline-flex items-center flex-shrink-0 ${
+                    conversation.lastMessage.status === 'read' ? 'text-sky-500' : 'text-slate-400'
+                  }`}>
+                    {conversation.lastMessage.status === 'read' ? (
+                      <CheckCheck className="w-3.5 h-3.5 stroke-[2.2]" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 stroke-[2.2]" />
+                    )}
                   </span>
                 )}
                 {conversation.lastMessage.type === 'voice' ? (

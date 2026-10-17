@@ -130,22 +130,25 @@ export const WelcomeScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full bg-white flex flex-col justify-between p-3.5 sm:p-8 md:p-12 relative overflow-hidden select-none">
+    <div
+      style={{ height: 'var(--app-height, 100dvh)', maxHeight: 'var(--app-height, 100dvh)' }}
+      className="w-full bg-white flex flex-col justify-between p-3 sm:p-5 md:p-6 relative overflow-y-auto select-none"
+    >
       {/* Background soft architectural accents */}
-      <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-indigo-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
-      <div className="absolute bottom-0 left-1/3 w-[600px] h-[600px] bg-slate-50/80 rounded-full blur-3xl -z-10 pointer-events-none" />
+      <div className="absolute top-0 right-1/4 w-[400px] h-[400px] bg-indigo-50/50 rounded-full blur-3xl -z-10 pointer-events-none" />
+      <div className="absolute bottom-0 left-1/3 w-[500px] h-[500px] bg-slate-50/70 rounded-full blur-3xl -z-10 pointer-events-none" />
 
       {/* Top Header */}
-      <header className="flex items-center justify-between w-full max-w-5xl mx-auto gap-3">
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/25 flex-shrink-0">
-            <MessageSquare className="w-4.5 h-4.5 sm:w-6 sm:h-6 fill-current" />
+      <header className="flex items-center justify-between w-full max-w-4xl mx-auto gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-600/25 flex-shrink-0">
+            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
           </div>
           <div>
-            <span className="text-lg sm:text-2xl font-extrabold tracking-tight text-slate-900 block leading-none">
+            <span className="text-base sm:text-xl font-extrabold tracking-tight text-slate-900 block leading-tight">
               MessMe
             </span>
-            <span className="text-[10px] sm:text-xs text-indigo-600 font-semibold tracking-wide uppercase mt-0.5 block">
+            <span className="text-[9px] sm:text-[10px] text-indigo-600 font-semibold tracking-wide uppercase block">
               Pure Messaging
             </span>
           </div>
@@ -153,34 +156,34 @@ export const WelcomeScreen: React.FC = () => {
 
         <button
           onClick={() => setIsRecoveryOpen(true)}
-          className="inline-flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-sm text-slate-600 hover:text-indigo-600 font-medium py-1.5 sm:py-2 px-2.5 sm:px-3.5 rounded-xl border border-slate-200/80 hover:bg-slate-50 transition-all cursor-pointer shadow-sm shadow-slate-100 flex-shrink-0"
+          className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-600 hover:text-indigo-600 font-medium py-1 sm:py-1.5 px-2.5 sm:px-3 rounded-lg border border-slate-200/80 hover:bg-slate-50 transition-all cursor-pointer shadow-sm flex-shrink-0"
         >
-          <KeyRound className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500" />
+          <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
           <span>Restore Session</span>
         </button>
       </header>
 
       {/* Main Hero & Card */}
-      <main className="w-full max-w-lg mx-auto my-auto py-4 sm:py-10">
-        <div className="text-center mb-5 sm:mb-10">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100/80 text-indigo-700 text-[11px] sm:text-xs font-semibold mb-2.5 sm:mb-4 shadow-sm">
-            <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 flex-shrink-0" />
+      <main className="w-full max-w-md mx-auto my-auto py-2 sm:py-4 flex-shrink-0">
+        <div className="text-center mb-2.5 sm:mb-4">
+          <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-100/80 text-indigo-700 text-[10px] sm:text-[11px] font-semibold mb-1 sm:mb-1.5 shadow-xs">
+            <Sparkles className="w-3 h-3 text-indigo-600 flex-shrink-0" />
             <span>Zero Passwords &bull; 100% Instant</span>
           </div>
 
-          <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold text-slate-950 tracking-tight leading-[1.18] mb-2.5 sm:mb-4">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-950 tracking-tight leading-tight">
             Your conversations start here.
           </h1>
 
-          <p className="text-xs sm:text-base md:text-lg text-slate-600 max-w-md mx-auto leading-relaxed font-normal">
-            Pick a unique username and jump straight into real-time chatting with text, emoji, voice notes, and reactions.
+          <p className="text-[11px] sm:text-xs text-slate-500 max-w-xs mx-auto mt-0.5 leading-normal hidden xs:block">
+            Choose your handle and jump straight into real-time chatting.
           </p>
         </div>
 
         {/* Floating Identity Setup Card */}
-        <div className="bg-white rounded-3xl p-4 sm:p-8 border border-slate-200/90 shadow-xl shadow-slate-200/40 relative">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-slate-200/90 shadow-lg shadow-slate-200/40 relative">
           {/* Live Avatar Preview with Easy Photo Picker */}
-          <div className="flex flex-col items-center justify-center mb-6">
+          <div className="flex flex-col items-center justify-center mb-3 sm:mb-4">
             <input
               ref={fileInputRef}
               type="file"
@@ -197,12 +200,12 @@ export const WelcomeScreen: React.FC = () => {
                 name={displayName || username || 'MessMe'}
                 avatarUrl={avatarUrl}
                 seed={username || 'guest'}
-                size="xl"
+                size="lg"
                 isOnline={true}
-                className="ring-4 ring-indigo-50/80 transition-all group-hover:ring-indigo-200"
+                className="ring-2 sm:ring-4 ring-indigo-50/80 transition-all group-hover:ring-indigo-200"
               />
-              <div className="absolute inset-0 rounded-full bg-slate-900/35 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[11px] font-semibold">
-                <Camera className="w-4 h-4 mb-0.5" />
+              <div className="absolute inset-0 rounded-full bg-slate-900/35 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] font-semibold">
+                <Camera className="w-3.5 h-3.5 mb-0.5" />
                 <span>Upload</span>
               </div>
               <button
@@ -211,21 +214,21 @@ export const WelcomeScreen: React.FC = () => {
                   e.stopPropagation();
                   fileInputRef.current?.click();
                 }}
-                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors cursor-pointer ring-2 ring-white"
+                className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors cursor-pointer ring-2 ring-white"
                 title="Upload profile photo"
               >
-                <Camera className="w-3.5 h-3.5" />
+                <Camera className="w-3 h-3" />
               </button>
             </div>
 
-            <div className="flex items-center gap-2 mt-2.5">
+            <div className="flex items-center gap-2 mt-1.5">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer inline-flex items-center gap-1"
+                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer inline-flex items-center gap-1"
               >
-                <Upload className="w-3 h-3" />
-                <span>{avatarUrl ? 'Change Photo' : 'Add Profile Picture (Optional)'}</span>
+                <Upload className="w-2.5 h-2.5" />
+                <span>{avatarUrl ? 'Change Photo' : 'Add Photo (Optional)'}</span>
               </button>
               {avatarUrl && (
                 <button
@@ -234,23 +237,23 @@ export const WelcomeScreen: React.FC = () => {
                   className="text-xs text-rose-500 hover:text-rose-700 transition-colors cursor-pointer p-0.5"
                   title="Remove photo"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3 h-3" />
                 </button>
               )}
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3.5">
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Pick a Unique Username
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                  Pick a Username
                 </label>
-                <span className="text-xs text-slate-400 font-medium">Global identifier</span>
+                <span className="text-[10px] text-slate-400 font-medium">Unique handle</span>
               </div>
 
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 font-bold text-base">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 font-bold text-sm">
                   @
                 </span>
                 <input
@@ -260,7 +263,7 @@ export const WelcomeScreen: React.FC = () => {
                   onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                   placeholder="your_handle"
                   maxLength={20}
-                  className={`w-full pl-9 pr-11 py-3.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border text-slate-950 text-base font-semibold transition-all focus:outline-none focus:ring-2 ${
+                  className={`w-full pl-7 pr-9 py-2 sm:py-2.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-xl border text-slate-950 text-sm font-semibold transition-all focus:outline-none focus:ring-2 ${
                     availability.checked
                       ? availability.available
                         ? 'border-emerald-300 focus:ring-emerald-400 focus:border-emerald-400'
@@ -269,36 +272,36 @@ export const WelcomeScreen: React.FC = () => {
                   }`}
                 />
 
-                <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                   {isChecking ? (
-                    <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                    <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
                   ) : availability.checked ? (
                     availability.available ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     ) : (
-                      <AlertCircle className="w-5 h-5 text-rose-600" />
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
                     )
                   ) : null}
                 </div>
               </div>
 
               {/* Live status feedback */}
-              <div className="min-h-[24px] mt-2 px-1">
+              <div className="min-h-[18px] mt-1 px-1">
                 {availability.checked && !isChecking && (
                   <div>
                     <p
-                      className={`text-xs flex items-center gap-1.5 font-medium ${
+                      className={`text-[11px] flex items-center gap-1 font-medium ${
                         availability.available ? 'text-emerald-700' : 'text-rose-600'
                       }`}
                     >
                       {availability.available ? (
                         <>
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>@{username} is available! Ready to create.</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>@{username} is available!</span>
                         </>
                       ) : (
                         <>
-                          <AlertCircle className="w-4 h-4 text-rose-600" />
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
                           <span>{availability.error}</span>
                         </>
                       )}
@@ -306,17 +309,17 @@ export const WelcomeScreen: React.FC = () => {
 
                     {/* Instant Login option if username is already registered */}
                     {!availability.available && availability.error?.includes('taken') && (
-                      <div className="mt-2.5 p-3 bg-indigo-50/80 border border-indigo-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5">
-                        <span className="text-xs text-indigo-950 font-medium text-center sm:text-left">
-                          Is <span className="font-bold text-indigo-700">@{username}</span> your existing account on another device?
+                      <div className="mt-1.5 p-2 bg-indigo-50/80 border border-indigo-200/80 rounded-xl flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-indigo-950 font-medium">
+                          Account exists?
                         </span>
                         <button
                           type="button"
                           onClick={handleDirectLogin}
                           disabled={isSubmitting}
-                          className="w-full sm:w-auto px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
+                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[10px] font-bold rounded-lg shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1 flex-shrink-0"
                         >
-                          {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                          {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                           <span>Connect as @{username}</span>
                         </button>
                       </div>
@@ -324,22 +327,22 @@ export const WelcomeScreen: React.FC = () => {
                   </div>
                 )}
                 {!availability.checked && (
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                    <span>3 to 20 letters, numbers, and underscores.</span>
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                    <span>3 to 20 letters, numbers, and underscores</span>
                   </div>
                 )}
               </div>
 
               {/* Quick suggestions if empty */}
               {!username && (
-                <div className="flex items-center gap-2 mt-2 pt-1">
-                  <span className="text-[11px] font-medium text-slate-400">Try:</span>
+                <div className="flex items-center gap-1.5 mt-1 pt-0.5">
+                  <span className="text-[10px] font-medium text-slate-400">Try:</span>
                   {['alex_craft', 'sarah_wave', 'ryan_flow'].map((sug) => (
                     <button
                       key={sug}
                       type="button"
                       onClick={() => handleQuickSuggestion(sug)}
-                      className="text-xs bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 font-medium px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                      className="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 font-medium px-1.5 py-0.5 rounded-md transition-colors cursor-pointer"
                     >
                       @{sug}
                     </button>
@@ -349,48 +352,51 @@ export const WelcomeScreen: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
-                Display Name <span className="text-slate-400 font-normal lowercase">(optional)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                  Display Name
+                </label>
+                <span className="text-[10px] text-slate-400 font-medium">Optional</span>
+              </div>
               <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder={username ? `@${username}` : 'How friends will see you'}
                 maxLength={30}
-                className="w-full px-4 py-3.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 text-base font-medium transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 sm:py-2.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-xl border border-slate-200 text-slate-900 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
 
             <button
               type="submit"
               disabled={!availability.available || isSubmitting || isChecking}
-              className="w-full mt-3 py-4 px-5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-base rounded-2xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.99]"
+              className="w-full mt-2 py-2.5 sm:py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
             >
               {isSubmitting ? (
-                <Loader2 className="w-5 h-5 animate-spin text-white" />
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <>
                   <span>Enter MessMe</span>
-                  <ArrowRight className="w-5 h-5 stroke-[2.2]" />
+                  <ArrowRight className="w-4 h-4 stroke-[2.2]" />
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center gap-2 text-xs text-slate-500">
-            <Shield className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+          <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
+            <Shield className="w-3 h-3 text-indigo-600 flex-shrink-0" />
             <span>Cryptographic local sessions protect your identity.</span>
           </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="w-full max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 py-3 gap-2 border-t border-slate-100">
+      <footer className="w-full max-w-4xl mx-auto flex items-center justify-between text-[10px] sm:text-xs text-slate-400 py-1 sm:py-1.5 border-t border-slate-100 flex-shrink-0">
         <p className="font-medium text-slate-600">
-          MessMe &bull; A Distinctive Minimalist Messaging Experience
+          MessMe &bull; Minimalist Messaging
         </p>
-        <p className="text-slate-400">Lexend Typography &bull; White Palette Only</p>
+        <p className="text-slate-400">Lexend Typography &bull; Pure White</p>
       </footer>
 
       <SessionRecoveryModal

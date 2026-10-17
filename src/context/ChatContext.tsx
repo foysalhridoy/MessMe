@@ -27,6 +27,7 @@ import {
   blockUserInStorage,
   unblockUserInStorage,
   getUserProfileByUsername,
+  markConversationMessagesAsRead,
 } from '../services/db';
 import { uploadVoiceAudio, playNotificationSound, playSendSound } from '../lib/audio';
 import { ChatContext } from './chatContextInstance';
@@ -132,13 +133,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isCancelled) {
         setActiveMessages(msgs);
         setIsLoadingMessages(false);
+        if (currentUser?.id) {
+          markConversationMessagesAsRead(activeConversationId, currentUser.id);
+        }
       }
     });
 
     return () => {
       isCancelled = true;
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, currentUser?.id]);
 
   // 4. Realtime events listener (stays connected for the session lifetime)
   useEffect(() => {
@@ -164,12 +168,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return next;
         });
 
-        // If message belongs to active conversation, append
+        // If message belongs to active conversation, append and mark read
         if (currentActive && msg.conversationId === currentActive.id) {
           setActiveMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg];
           });
+          if (loggedInUser && msg.senderId !== loggedInUser.id) {
+            markConversationMessagesAsRead(currentActive.id, loggedInUser.id);
+          }
         }
 
         // Update conversation preview and sort
@@ -238,6 +245,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           delete next[conversationId];
           return next;
         });
+      } else if (payload.type === 'MESSAGES_READ' && payload.conversationId) {
+        const { conversationId, readerId } = payload;
+        setActiveMessages((prev) =>
+          prev.map((m) => {
+            if (m.conversationId === conversationId && m.senderId !== readerId) {
+              return { ...m, status: 'read' };
+            }
+            return m;
+          })
+        );
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === conversationId && c.lastMessage && c.lastMessage.senderId !== readerId) {
+              return {
+                ...c,
+                lastMessage: { ...c.lastMessage, status: 'read' },
+              };
+            }
+            return c;
+          })
+        );
       } else if (payload.type === 'PROFILE_UPDATE' && payload.profile) {
         const updatedUser = payload.profile;
         setConversations((prev) =>
@@ -430,6 +458,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setReplyingTo(null);
       setIsSearchInChatOpen(false);
       setSearchQueryInChat('');
+      if (currentUser?.id) {
+        markConversationMessagesAsRead(convId, currentUser.id);
+      }
     }
   };
 

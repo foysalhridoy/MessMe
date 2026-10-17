@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCheck, CornerDownRight } from 'lucide-react';
+import { CheckCheck, Check, CornerDownRight } from 'lucide-react';
 import type { Message } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
@@ -109,8 +109,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     >
       {/* Sender name for received messages */}
       {showSenderHeader && !isSender && (
-        <span className="text-[11px] sm:text-xs font-bold text-slate-500 ml-10 sm:ml-11 mb-1 select-none">
-          {message.senderDisplayName || message.senderUsername}
+        <span className="text-[11px] sm:text-xs font-bold text-slate-600 ml-10 sm:ml-11 mb-1 select-none">
+          {message.senderDisplayName && message.senderDisplayName.toLowerCase() !== 'user'
+            ? message.senderDisplayName
+            : (message.senderUsername && message.senderUsername.toLowerCase() !== 'user' ? `@${message.senderUsername}` : 'Friend')}
         </span>
       )}
 
@@ -251,8 +253,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 {message.editedAt && <span className="opacity-75 text-[9px] sm:text-[10px]">(edited)</span>}
                 <span>{formatMessageTime(message.createdAt)}</span>
                 {isSender && (
-                  <span title={message.status || 'sent'} className="inline-flex items-center">
-                    <CheckCheck className="w-3.5 h-3.5 text-indigo-200 stroke-[2.4]" />
+                  <span title={message.status === 'read' ? 'Seen' : 'Sent'} className="inline-flex items-center ml-0.5">
+                    {message.status === 'read' ? (
+                      <CheckCheck className="w-3.5 h-3.5 text-sky-300 stroke-[2.6]" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 text-indigo-200 stroke-[2.2]" />
+                    )}
                   </span>
                 )}
               </div>
