@@ -76,12 +76,10 @@ export const Avatar: React.FC<AvatarProps> = ({
         </div>
       )}
 
-      {isOnline !== undefined && (
+      {isOnline === true && (
         <span
-          className={`absolute rounded-full ring-2 ring-white shadow-xs ${config.statusSize} ${
-            isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-          }`}
-          title={isOnline ? 'Active Online' : 'Offline'}
+          className={`absolute rounded-full ring-2 ring-white shadow-xs bg-emerald-500 ${config.statusSize}`}
+          title="Active now"
         />
       )}
     </div>

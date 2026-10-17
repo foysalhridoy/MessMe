@@ -1,6 +1,7 @@
 import { X, Pin, VolumeX, Trash2, Mic, Image as ImageIcon, Ban } from 'lucide-react';
 import { useChat } from '../../context/useChat';
 import { Avatar } from '../common/Avatar';
+import { formatLastSeen } from '../../lib/presence';
 
 interface ConversationInfoDrawerProps {
   isOpen: boolean;
@@ -63,6 +64,22 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
           {contact.displayName || contact.username}
         </h3>
         <p className="text-sm text-indigo-600 font-semibold mt-0.5">@{contact.username}</p>
+
+        {/* Activity Status Badge */}
+        <div className="mt-2.5 flex items-center justify-center">
+          <span
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+              contact.isOnline
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs'
+                : 'bg-slate-100 text-slate-600 border border-slate-200/80'
+            }`}
+          >
+            {contact.isOnline && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+            <span>{formatLastSeen(contact.lastSeen, contact.isOnline)}</span>
+          </span>
+        </div>
 
         {isBlocked(contact.userId) && (
           <span className="inline-block mt-2 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider bg-rose-50 text-rose-600 border border-rose-200 rounded-full">

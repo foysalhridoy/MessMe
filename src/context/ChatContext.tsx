@@ -30,6 +30,8 @@ import {
   unblockUserInStorage,
   getUserProfileByUsername,
   markConversationMessagesAsRead,
+  broadcastUserPresence,
+  updateUserLastSeen,
 } from '../services/db';
 import { uploadVoiceAudio, playNotificationSound, playSendSound } from '../lib/audio';
 import { ChatContext } from './chatContextInstance';
@@ -73,6 +75,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return profile?.id ? getStoredBlockedUserIds(profile.id) : [];
   });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [onlineUsersMap, setOnlineUsersMap] = useState<Record<string, { isOnline: boolean; lastSeen?: string; timestamp: number }>>({});
+  const onlineUsersRef = useRef(onlineUsersMap);
+  useEffect(() => {
+    onlineUsersRef.current = onlineUsersMap;
+  }, [onlineUsersMap]);
 
   const showToast = useCallback((message: string, type: ToastMessage['type'] = 'info', title?: string) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
@@ -137,12 +144,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     fetchUserConversations(currentUser.id).then((convs) => {
       if (!isCancelled) {
-        setConversations(convs);
-        if (convs.length > 0 && !activeConversationRef.current) {
+        const presence = onlineUsersRef.current;
+        const mapped = convs.map((c) => {
+          const userPresence = presence[c.otherParticipant.userId];
+          if (userPresence) {
+            return {
+              ...c,
+              otherParticipant: {
+                ...c.otherParticipant,
+                isOnline: userPresence.isOnline,
+                lastSeen: userPresence.lastSeen || c.otherParticipant.lastSeen,
+              },
+            };
+          }
+          return c;
+        });
+        setConversations(mapped);
+        if (mapped.length > 0 && !activeConversationRef.current) {
           // Select first conversation by default on desktop
           if (window.innerWidth >= 768) {
-            setActiveConversation(convs[0]);
-            setActiveMessages(getCachedMessages(convs[0].id));
+            setActiveConversation(mapped[0]);
+            setActiveMessages(getCachedMessages(mapped[0].id));
           }
         }
       }
@@ -357,11 +379,176 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (loggedInUser?.id) {
           setBlockedUserIds(getStoredBlockedUserIds(loggedInUser.id));
         }
+      } else if (payload.type === 'PRESENCE' && payload.senderId) {
+        const { senderId, isOnline, lastSeen } = payload;
+        if (loggedInUser && senderId === loggedInUser.id) return;
+
+        const effectiveOnline = Boolean(isOnline);
+        const effectiveLastSeen = lastSeen || new Date().toISOString();
+
+        setOnlineUsersMap((prev) => ({
+          ...prev,
+          [senderId]: {
+            isOnline: effectiveOnline,
+            lastSeen: effectiveLastSeen,
+            timestamp: Date.now(),
+          },
+        }));
+
+        setActiveConversation((prev) => {
+          if (!prev) return prev;
+          if (prev.otherParticipant.userId === senderId) {
+            return {
+              ...prev,
+              otherParticipant: {
+                ...prev.otherParticipant,
+                isOnline: effectiveOnline,
+                lastSeen: effectiveLastSeen,
+              },
+              participants: prev.participants.map((p) =>
+                p.userId === senderId
+                  ? { ...p, isOnline: effectiveOnline, lastSeen: effectiveLastSeen }
+                  : p
+              ),
+            };
+          }
+          return prev;
+        });
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.otherParticipant.userId === senderId) {
+              return {
+                ...c,
+                otherParticipant: {
+                  ...c.otherParticipant,
+                  isOnline: effectiveOnline,
+                  lastSeen: effectiveLastSeen,
+                },
+                participants: c.participants.map((p) =>
+                  p.userId === senderId
+                    ? { ...p, isOnline: effectiveOnline, lastSeen: effectiveLastSeen }
+                    : p
+                ),
+              };
+            }
+            return c;
+          })
+        );
       }
     });
 
     return unsubscribe;
   }, [currentUser?.id]);
+
+  // 5. User Presence & Activity Heartbeat
+  useEffect(() => {
+    if (!currentUser?.id || !currentUser?.username) return;
+
+    const userId = currentUser.id;
+    const username = currentUser.username;
+
+    // Immediately announce presence online & refresh last_seen
+    broadcastUserPresence(userId, username, true);
+    updateUserLastSeen(userId);
+
+    // Heartbeat every 20 seconds while page is open
+    const heartbeatTimer = setInterval(() => {
+      broadcastUserPresence(userId, username, true);
+      updateUserLastSeen(userId);
+    }, 20000);
+
+    // Handle tab visibility change
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        const nowIso = new Date().toISOString();
+        broadcastUserPresence(userId, username, false, nowIso);
+        updateUserLastSeen(userId);
+      } else {
+        broadcastUserPresence(userId, username, true);
+        updateUserLastSeen(userId);
+      }
+    };
+
+    // Handle closing tab / before unload
+    const handleBeforeUnload = () => {
+      const nowIso = new Date().toISOString();
+      broadcastUserPresence(userId, username, false, nowIso);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(heartbeatTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      broadcastUserPresence(userId, username, false, new Date().toISOString());
+      updateUserLastSeen(userId);
+    };
+  }, [currentUser?.id, currentUser?.username]);
+
+  // 6. Cleanup stale presence (mark users offline if no heartbeat received for > 40 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      let hasChanges = false;
+
+      setOnlineUsersMap((prev) => {
+        const next = { ...prev };
+        Object.entries(next).forEach(([userId, data]) => {
+          if (data.isOnline && now - data.timestamp > 40000) {
+            hasChanges = true;
+            next[userId] = {
+              ...data,
+              isOnline: false,
+              lastSeen: new Date(data.timestamp).toISOString(),
+            };
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+
+      if (hasChanges) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            const uid = c.otherParticipant.userId;
+            const presence = onlineUsersRef.current[uid];
+            if (presence && !presence.isOnline && c.otherParticipant.isOnline) {
+              return {
+                ...c,
+                otherParticipant: {
+                  ...c.otherParticipant,
+                  isOnline: false,
+                  lastSeen: presence.lastSeen || c.otherParticipant.lastSeen,
+                },
+              };
+            }
+            return c;
+          })
+        );
+
+        setActiveConversation((prev) => {
+          if (!prev) return prev;
+          const uid = prev.otherParticipant.userId;
+          const presence = onlineUsersRef.current[uid];
+          if (presence && !presence.isOnline && prev.otherParticipant.isOnline) {
+            return {
+              ...prev,
+              otherParticipant: {
+                ...prev.otherParticipant,
+                isOnline: false,
+                lastSeen: presence.lastSeen || prev.otherParticipant.lastSeen,
+              },
+            };
+          }
+          return prev;
+        });
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Onboard new user with unique username and optional profile photo
   const onboardUser = async (username: string, displayName?: string, avatarUrl?: string): Promise<boolean> => {

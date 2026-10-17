@@ -48,6 +48,8 @@ export interface RealtimeEventPayload {
   reaction?: MessageReaction;
   isTyping?: boolean;
   profile?: UserProfile;
+  isOnline?: boolean;
+  lastSeen?: string;
 }
 
 type RealtimeListener = (payload: RealtimeEventPayload) => void;
@@ -330,11 +332,23 @@ export function ensureSupabaseRealtime() {
       });
     });
 
+    // 6. Listen for user presence heartbeats and online/offline changes
+    supabaseChannelInstance.on('broadcast', { event: 'presence' }, ({ payload }) => {
+      if (!payload || !payload.senderId) return;
+      listeners.forEach((l) => {
+        try {
+          l(payload as RealtimeEventPayload);
+        } catch (e) {
+          console.error('Error in presence broadcast handler:', e);
+        }
+      });
+    });
+
     supabaseChannelInstance.subscribe((status, err) => {
       if (status === 'SUBSCRIBED') {
-        console.log('MessMe Realtime: connected to Supabase global channel');
+        console.log('MessMee Realtime: connected to Supabase global channel');
       } else if (err) {
-        console.warn('MessMe Realtime subscription issue:', err);
+        console.warn('MessMee Realtime subscription issue:', err);
       }
     });
   } catch (err) {
@@ -886,7 +900,8 @@ export async function fetchUserConversations(currentUserId: string): Promise<Con
             displayName: p.profiles?.display_name || p.profiles?.username || 'User',
             avatarUrl: p.profiles?.avatar_url,
             about: p.profiles?.about,
-            isOnline: true,
+            lastSeen: p.profiles?.last_seen || undefined,
+            isOnline: false,
           }));
 
           const otherParticipant = {
@@ -895,7 +910,8 @@ export async function fetchUserConversations(currentUserId: string): Promise<Con
             displayName: otherProfile.display_name || otherProfile.username || 'User',
             avatarUrl: otherProfile.avatar_url,
             about: otherProfile.about,
-            isOnline: true,
+            lastSeen: otherProfile.last_seen || undefined,
+            isOnline: false,
           };
 
           const lastMsg = latestMsgMap.get(pr.conversation_id);
@@ -972,7 +988,8 @@ export async function getOrCreateConversation(
                 username: targetUser.username,
                 displayName: targetUser.displayName,
                 avatarUrl: targetUser.avatarUrl,
-                isOnline: true,
+                lastSeen: targetUser.lastSeen,
+                isOnline: Boolean(targetUser.isOnline),
               },
             ],
             otherParticipant: {
@@ -980,7 +997,8 @@ export async function getOrCreateConversation(
               username: targetUser.username,
               displayName: targetUser.displayName,
               avatarUrl: targetUser.avatarUrl,
-              isOnline: true,
+              lastSeen: targetUser.lastSeen,
+              isOnline: Boolean(targetUser.isOnline),
             },
             unreadCount: 0,
             isPinned: false,
@@ -1019,7 +1037,8 @@ export async function getOrCreateConversation(
               username: targetUser.username,
               displayName: targetUser.displayName,
               avatarUrl: targetUser.avatarUrl,
-              isOnline: true,
+              lastSeen: targetUser.lastSeen,
+              isOnline: Boolean(targetUser.isOnline),
             },
           ],
           otherParticipant: {
@@ -1027,7 +1046,8 @@ export async function getOrCreateConversation(
             username: targetUser.username,
             displayName: targetUser.displayName,
             avatarUrl: targetUser.avatarUrl,
-            isOnline: true,
+            lastSeen: targetUser.lastSeen,
+            isOnline: Boolean(targetUser.isOnline),
           },
           unreadCount: 0,
           isPinned: false,
@@ -1067,7 +1087,8 @@ export async function getOrCreateConversation(
         username: targetUser.username,
         displayName: targetUser.displayName,
         avatarUrl: targetUser.avatarUrl,
-        isOnline: targetUser.isOnline ?? true,
+        lastSeen: targetUser.lastSeen,
+        isOnline: Boolean(targetUser.isOnline),
       },
     ],
     otherParticipant: {
@@ -1075,7 +1096,8 @@ export async function getOrCreateConversation(
       username: targetUser.username,
       displayName: targetUser.displayName,
       avatarUrl: targetUser.avatarUrl,
-      isOnline: targetUser.isOnline ?? true,
+      lastSeen: targetUser.lastSeen,
+      isOnline: Boolean(targetUser.isOnline),
     },
     unreadCount: 0,
     isPinned: false,
@@ -1589,6 +1611,53 @@ export function broadcastTypingStatus(conversationId: string, user: UserProfile,
       });
     } catch (e) {
       console.warn('Failed to broadcast typing via Supabase:', e);
+    }
+  }
+}
+
+export function broadcastUserPresence(userId: string, username: string, isOnline: boolean, lastSeen?: string) {
+  const payload: RealtimeEventPayload = {
+    type: 'PRESENCE',
+    senderId: userId,
+    senderUsername: username,
+    isOnline,
+    lastSeen: lastSeen || new Date().toISOString(),
+  };
+
+  // Broadcast locally to in-process listeners & other browser tabs
+  broadcastEvent(payload);
+
+  // Broadcast across devices via Supabase channel
+  if (supabaseChannelInstance) {
+    try {
+      supabaseChannelInstance.send({
+        type: 'broadcast',
+        event: 'presence',
+        payload,
+      });
+    } catch (e) {
+      console.warn('Failed to broadcast presence via Supabase:', e);
+    }
+  }
+}
+
+export async function updateUserLastSeen(userId: string): Promise<void> {
+  const now = new Date().toISOString();
+  // Update local cache
+  const cached = userProfileCache.get(userId);
+  if (cached) {
+    cached.lastSeen = now;
+  }
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('profiles')
+        .update({ last_seen: now })
+        .eq('id', userId);
+    } catch {
+      // quiet fallback
     }
   }
 }

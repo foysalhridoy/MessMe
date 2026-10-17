@@ -1,6 +1,7 @@
 import { ArrowLeft, Search, Info } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { useChat } from '../../context/useChat';
+import { formatLastSeen } from '../../lib/presence';
 
 interface ChatHeaderProps {
   onBack?: () => void;
@@ -88,12 +89,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 typing...
               </span>
             ) : contact.isOnline ? (
-              <span className="text-[11px] sm:text-xs text-emerald-600 font-medium leading-none">
+              <span className="text-[11px] sm:text-xs text-emerald-600 font-medium leading-none flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Active now
               </span>
             ) : (
               <span className="text-[11px] sm:text-xs text-slate-400 font-normal leading-none">
-                {contact.lastSeen || 'Offline'}
+                {formatLastSeen(contact.lastSeen, false)}
               </span>
             )}
           </div>

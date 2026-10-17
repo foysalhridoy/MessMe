@@ -6,6 +6,7 @@ import { Button } from '../common/Button';
 import type { UserProfile } from '../../types';
 import { searchUsersByUsername } from '../../services/db';
 import { useChat } from '../../context/useChat';
+import { formatLastSeen } from '../../lib/presence';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -145,7 +146,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, onClose }) =
                         <h4 className="text-sm font-bold text-slate-900 truncate">
                           {user.displayName || user.username}
                         </h4>
-                        <p className="text-xs text-indigo-600 font-semibold truncate">@{user.username}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs text-indigo-600 font-semibold truncate">@{user.username}</p>
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            &bull; {formatLastSeen(user.lastSeen, user.isOnline)}
+                          </span>
+                        </div>
                         {user.about && (
                           <p className="text-xs text-slate-500 truncate mt-0.5 max-w-xs">
                             {user.about}
