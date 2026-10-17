@@ -380,6 +380,10 @@ function getAllStoredConversations(currentUserId: string): Conversation[] {
   }
 }
 
+export function getCachedConversations(currentUserId: string): Conversation[] {
+  return getAllStoredConversations(currentUserId);
+}
+
 function saveStoredConversations(currentUserId: string, convs: Conversation[]) {
   try {
     localStorage.setItem(`${STORAGE_CONVERSATIONS}_${currentUserId}`, JSON.stringify(convs));
@@ -396,6 +400,11 @@ function getAllStoredMessages(): Record<string, Message[]> {
   } catch {
     return {};
   }
+}
+
+export function getCachedMessages(conversationId: string): Message[] {
+  const messagesMap = getAllStoredMessages();
+  return messagesMap[conversationId] || [];
 }
 
 function saveStoredMessages(messagesMap: Record<string, Message[]>) {
@@ -817,27 +826,43 @@ export async function fetchUserConversations(currentUserId: string): Promise<Con
           .order('created_at', { ascending: false });
 
         const latestMsgMap = new Map<string, Message>();
+        const messagesMap = getAllStoredMessages();
+        let hasNewCached = false;
+
         if (recentMsgs) {
           for (const m of recentMsgs) {
+            const parsedMsg: Message = {
+              id: m.id,
+              conversationId: m.conversation_id,
+              senderId: m.sender_id,
+              senderUsername: m.profiles?.username || 'user',
+              senderDisplayName: m.profiles?.display_name || m.profiles?.username || 'User',
+              senderAvatarUrl: m.profiles?.avatar_url || undefined,
+              content: m.content,
+              type: (m.type as MessageType) || 'text',
+              mediaUrl: m.media_url || undefined,
+              imageUrl: (m.media_url && !m.duration && m.type !== 'voice') ? m.media_url : undefined,
+              duration: m.duration ? Number(m.duration) : undefined,
+              reactions: [],
+              createdAt: m.created_at,
+              isDeleted: m.is_deleted || false,
+              status: m.is_read ? 'read' : 'sent',
+            };
+
             if (!latestMsgMap.has(m.conversation_id)) {
-              latestMsgMap.set(m.conversation_id, {
-                id: m.id,
-                conversationId: m.conversation_id,
-                senderId: m.sender_id,
-                senderUsername: m.profiles?.username || 'user',
-                senderDisplayName: m.profiles?.display_name || m.profiles?.username || 'User',
-                senderAvatarUrl: m.profiles?.avatar_url || undefined,
-                content: m.content,
-                type: m.type as MessageType,
-                mediaUrl: m.media_url || undefined,
-                duration: m.duration ? Number(m.duration) : undefined,
-                reactions: [],
-                createdAt: m.created_at,
-                isDeleted: m.is_deleted || false,
-                status: 'sent',
-              });
+              latestMsgMap.set(m.conversation_id, parsedMsg);
+            }
+
+            const currentConvMsgs = messagesMap[m.conversation_id] || [];
+            if (!currentConvMsgs.some((x) => x.id === m.id)) {
+              messagesMap[m.conversation_id] = [...currentConvMsgs, parsedMsg];
+              hasNewCached = true;
             }
           }
+        }
+
+        if (hasNewCached) {
+          saveStoredMessages(messagesMap);
         }
 
         const partMap = new Map<string, any[]>();
@@ -1171,6 +1196,9 @@ export async function fetchMessages(conversationId: string): Promise<Message[]> 
           }
         }
 
+        const messagesMap = getAllStoredMessages();
+        const existingLocal = messagesMap[conversationId] || [];
+
         const messages: Message[] = data.map((m: any) => {
           let replyRef: Message['replyTo'] = undefined;
           if (m.reply_to_id) {
@@ -1187,6 +1215,8 @@ export async function fetchMessages(conversationId: string): Promise<Message[]> 
             }
           }
 
+          const cached = existingLocal.find((x) => x.id === m.id);
+
           return {
             id: m.id,
             conversationId: m.conversation_id,
@@ -1195,7 +1225,7 @@ export async function fetchMessages(conversationId: string): Promise<Message[]> 
             senderDisplayName: m.profiles?.display_name || m.profiles?.username || 'User',
             senderAvatarUrl: m.profiles?.avatar_url || undefined,
             content: m.content,
-            type: m.type as MessageType,
+            type: (m.type as MessageType) || 'text',
             mediaUrl: m.media_url || undefined,
             imageUrl: (m.media_url && !m.duration && m.type !== 'voice') ? m.media_url : undefined,
             duration: m.duration ? Number(m.duration) : undefined,
@@ -1204,15 +1234,26 @@ export async function fetchMessages(conversationId: string): Promise<Message[]> 
             createdAt: m.created_at,
             editedAt: m.edited_at || undefined,
             isDeleted: m.is_deleted || false,
-            status: 'sent',
+            status: (m.is_read || cached?.status === 'read') ? 'read' : 'sent',
           };
         });
 
-        // Cache in local store
-        const messagesMap = getAllStoredMessages();
-        messagesMap[conversationId] = messages;
+        // Merge to ensure no locally saved / realtime messages are dropped
+        const mergedMap = new Map<string, Message>();
+        for (const msg of existingLocal) {
+          mergedMap.set(msg.id, msg);
+        }
+        for (const msg of messages) {
+          mergedMap.set(msg.id, msg);
+        }
+
+        const mergedMessages = Array.from(mergedMap.values()).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+
+        messagesMap[conversationId] = mergedMessages;
         saveStoredMessages(messagesMap);
-        return messages;
+        return mergedMessages;
       }
     } catch (err) {
       console.warn('Supabase fetch messages fallback to local:', err);

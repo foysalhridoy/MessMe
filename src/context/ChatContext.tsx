@@ -14,6 +14,8 @@ import {
   editMessage,
   fetchMessages,
   fetchUserConversations,
+  getCachedConversations,
+  getCachedMessages,
   getOrCreateConversation,
   registerUserProfile,
   sendMessage,
@@ -37,9 +39,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<SessionData | null>(() => getSavedSession());
   const isLoadingAuth = false;
 
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [activeMessages, setActiveMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const profile = getSavedProfile();
+    return profile?.id ? getCachedConversations(profile.id) : [];
+  });
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(() => {
+    const profile = getSavedProfile();
+    if (!profile?.id) return null;
+    const cachedConvs = getCachedConversations(profile.id);
+    if (cachedConvs.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
+      return cachedConvs[0];
+    }
+    return null;
+  });
+  const [activeMessages, setActiveMessages] = useState<Message[]>(() => {
+    const profile = getSavedProfile();
+    if (!profile?.id) return [];
+    const cachedConvs = getCachedConversations(profile.id);
+    if (cachedConvs.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
+      return getCachedMessages(cachedConvs[0].id);
+    }
+    return [];
+  });
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   const [typingMap, setTypingMap] = useState<Record<string, string>>({});
@@ -86,10 +107,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveMessages([]);
     } else {
       setBlockedUserIds(getStoredBlockedUserIds(currentUser.id));
+      const cachedConvs = getCachedConversations(currentUser.id);
+      setConversations(cachedConvs);
+      if (cachedConvs.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
+        setActiveConversation(cachedConvs[0]);
+        setActiveMessages(getCachedMessages(cachedConvs[0].id));
+      }
     }
   }
 
-  // Set loading state and clear messages during render when active conversation changes
+  // Instant local cache loading during render when active conversation changes
   const [prevActiveConvId, setPrevActiveConvId] = useState(activeConversation?.id);
   if (activeConversation?.id !== prevActiveConvId) {
     setPrevActiveConvId(activeConversation?.id);
@@ -97,7 +124,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveMessages([]);
       setIsLoadingMessages(false);
     } else {
-      setIsLoadingMessages(true);
+      const cached = getCachedMessages(activeConversation.id);
+      setActiveMessages(cached);
+      setIsLoadingMessages(cached.length === 0);
     }
   }
 
@@ -113,6 +142,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Select first conversation by default on desktop
           if (window.innerWidth >= 768) {
             setActiveConversation(convs[0]);
+            setActiveMessages(getCachedMessages(convs[0].id));
           }
         }
       }
@@ -454,6 +484,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setConversations((prev) =>
         prev.map((c) => (c.id === convId ? updated : c))
       );
+      // Immediately load cached messages with zero delay
+      const cached = getCachedMessages(convId);
+      setActiveMessages(cached);
+      setIsLoadingMessages(cached.length === 0);
       setActiveConversation(updated);
       setReplyingTo(null);
       setIsSearchInChatOpen(false);
@@ -467,6 +501,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startChatWithUser = async (targetUser: UserProfile): Promise<Conversation> => {
     if (!currentUser) throw new Error('Not logged in');
     const conv = await getOrCreateConversation(currentUser, targetUser);
+    const cached = getCachedMessages(conv.id);
+    setActiveMessages(cached);
+    setIsLoadingMessages(cached.length === 0);
     setConversations((prev) => {
       if (prev.some((c) => c.id === conv.id)) return prev;
       return [conv, ...prev];

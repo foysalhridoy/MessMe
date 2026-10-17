@@ -257,7 +257,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
             {/* Top flexible spacer: pushes messages to bottom when content is short */}
             <div className="flex-1 min-h-3" />
 
-            {isLoadingMessages ? (
+            {isLoadingMessages && activeMessages.length === 0 ? (
               <div className="py-20 flex items-center justify-center text-slate-400 text-sm font-medium">
                 Loading conversation messages...
               </div>
