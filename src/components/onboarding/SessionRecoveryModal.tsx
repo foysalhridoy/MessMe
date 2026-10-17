@@ -35,14 +35,14 @@ export const SessionRecoveryModal: React.FC<SessionRecoveryModalProps> = ({ isOp
       isOpen={isOpen}
       onClose={onClose}
       title="Restore Session"
-      description="MessMe uses cryptographic local sessions instead of passwords."
+      description="MessMee uses cryptographic local sessions instead of passwords."
       maxWidth="md"
     >
       <div className="space-y-4">
         <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-slate-600 leading-relaxed">
-            <strong className="text-slate-800">Security Note:</strong> Usernames in MessMe are public,
+            <strong className="text-slate-800">Security Note:</strong> Usernames in MessMee are public,
             not passwords. Knowing someone&apos;s username cannot grant access to their account or conversations.
             Only the corresponding session key restores identity.
           </div>

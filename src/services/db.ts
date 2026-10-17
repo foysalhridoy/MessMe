@@ -1,5 +1,5 @@
 /**
- * MessMe Database & Real-Time Sync Service
+ * MessMee Database & Real-Time Sync Service
  * Seamlessly interfaces with Supabase for cross-device real-time sync,
  * with resilient local caching and multi-tab broadcasting.
  */

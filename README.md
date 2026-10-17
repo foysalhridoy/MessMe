@@ -1,8 +1,8 @@
-# MessMe 💬
+# MessMee 💬
 
 <div align="center">
 
-![MessMe Banner](https://img.shields.io/badge/MessMe-Worldclass%20Messaging-indigo?style=for-the-badge&logo=messenger&logoColor=white)
+![MessMee Banner](https://img.shields.io/badge/MessMee-Worldclass%20Messaging-indigo?style=for-the-badge&logo=messenger&logoColor=white)
 
 [![React 19](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -24,7 +24,7 @@
 
 ## 🌟 Overview
 
-**MessMe** removes all traditional authentication friction—no phone numbers, no passwords, no email confirmations, and no SMS OTPs. Users establish identity simply by choosing a globally unique `@username`.
+**MessMee** removes all traditional authentication friction—no phone numbers, no passwords, no email confirmations, and no SMS OTPs. Users establish identity simply by choosing a globally unique `@username`.
 
 Under the hood, public usernames are decoupled from stable internal UUIDs and cryptographic session backup keys, giving users instant onboarding while maintaining cryptographic security, real-time synchronization, and native-grade fluid performance.
 
@@ -164,7 +164,7 @@ To enable cloud sync across different machines and phones:
    VITE_SUPABASE_URL=https://your-project.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
-   *(Alternatively, tap the green status dot next to the MessMe logo in the sidebar to configure credentials directly through the in-app modal without restarting the server).*
+   *(Alternatively, credentials can also be configured directly through the in-app backend configuration modal).*
 
 ---
 

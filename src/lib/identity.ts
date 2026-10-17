@@ -3,6 +3,7 @@ import type { SessionData, UserProfile } from '../types';
 const RESERVED_USERNAMES = new Set([
   'admin',
   'messme',
+  'messmee',
   'support',
   'system',
   'moderator',
@@ -47,7 +48,7 @@ export function validateUsername(username: string): UsernameValidationResult {
   }
 
   if (RESERVED_USERNAMES.has(normalized)) {
-    return { isValid: false, error: 'This username is reserved by MessMe.' };
+    return { isValid: false, error: 'This username is reserved by MessMee.' };
   }
 
   return { isValid: true };

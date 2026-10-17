@@ -173,7 +173,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, onClose }) =
               </div>
               <p className="text-base font-bold text-slate-800">No user found</p>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                Check the spelling of the username. Every username on MessMe is globally unique.
+                Check the spelling of the username. Every username on MessMee is globally unique.
               </p>
             </div>
           ) : (

@@ -77,7 +77,7 @@ export function App() {
         <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-600/20 mb-3 animate-pulse">
           <MessageSquare className="w-6 h-6 fill-current" />
         </div>
-        <h1 className="text-xl font-bold tracking-tight text-slate-900">MessMe</h1>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">MessMee</h1>
         <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           Restoring session...

@@ -78,18 +78,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectConver
             <MessageSquare className="w-5 h-5 fill-current" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-lg tracking-tight text-slate-900 leading-none">
-                MessMe
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsBackendOpen(true)}
-                className="w-2.5 h-2.5 rounded-full bg-emerald-500 hover:scale-125 transition-transform cursor-pointer"
-                title="Cloud sync & database status"
-                aria-label="Cloud sync status"
-              />
-            </div>
+            <span className="font-extrabold text-lg tracking-tight text-slate-900 leading-none block">
+              MessMee
+            </span>
             {currentUser && (
               <p className="text-xs text-slate-500 font-medium leading-tight mt-1">
                 @{currentUser.username}

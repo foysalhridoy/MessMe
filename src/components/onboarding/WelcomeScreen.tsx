@@ -146,7 +146,7 @@ export const WelcomeScreen: React.FC = () => {
           </div>
           <div>
             <span className="text-base sm:text-xl font-extrabold tracking-tight text-slate-900 block leading-tight">
-              MessMe
+              MessMee
             </span>
             <span className="text-[9px] sm:text-[10px] text-indigo-600 font-semibold tracking-wide uppercase block">
               Pure Messaging
@@ -197,7 +197,7 @@ export const WelcomeScreen: React.FC = () => {
               title="Click to set profile photo"
             >
               <Avatar
-                name={displayName || username || 'MessMe'}
+                name={displayName || username || 'MessMee'}
                 avatarUrl={avatarUrl}
                 seed={username || 'guest'}
                 size="lg"
@@ -377,7 +377,7 @@ export const WelcomeScreen: React.FC = () => {
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <>
-                  <span>Enter MessMe</span>
+                  <span>Enter MessMee</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.2]" />
                 </>
               )}
@@ -394,7 +394,7 @@ export const WelcomeScreen: React.FC = () => {
       {/* Footer */}
       <footer className="w-full max-w-4xl mx-auto flex items-center justify-between text-[10px] sm:text-xs text-slate-400 py-1 sm:py-1.5 border-t border-slate-100 flex-shrink-0">
         <p className="font-medium text-slate-600">
-          MessMe &bull; Minimalist Messaging
+          MessMee &bull; Minimalist Messaging
         </p>
         <p className="text-slate-400">Lexend Typography &bull; Pure White</p>
       </footer>

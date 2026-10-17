@@ -239,7 +239,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
           <MessageSquare className="w-10 h-10 fill-current" />
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-2">
-          MessMe Conversations
+          MessMee Conversations
         </h2>
         <p className="text-base text-slate-500 max-w-md text-center leading-relaxed mb-6 font-normal">
           Select a chat from the sidebar to start messaging, or search by username to connect with anyone instantly.

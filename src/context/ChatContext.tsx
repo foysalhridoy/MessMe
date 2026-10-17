@@ -378,7 +378,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       saveSessionAndProfile(newSession, profile);
       setSession(newSession);
       setCurrentUser(profile);
-      showToast(`Welcome to MessMe, @${profile.username}!`, 'success', 'Identity Established');
+      showToast(`Welcome to MessMee, @${profile.username}!`, 'success', 'Identity Established');
       return true;
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Registration failed', 'error');

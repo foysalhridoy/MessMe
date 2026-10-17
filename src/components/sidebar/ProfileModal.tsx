@@ -113,7 +113,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
       isOpen={isOpen}
       onClose={onClose}
       title="Edit Profile & Picture"
-      description="Customize your public persona and profile photo on MessMe."
+      description="Customize your public persona and profile photo on MessMee."
       maxWidth="lg"
     >
       <form onSubmit={handleSave} className="space-y-4">
