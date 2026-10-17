@@ -517,7 +517,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         caption || 'Shared an image',
         'text',
-        undefined,
+        imageDataUrl,
         undefined,
         undefined,
         imageDataUrl

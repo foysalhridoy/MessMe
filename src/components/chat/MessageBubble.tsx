@@ -77,6 +77,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const isEmojiOnly = message.type === 'text' && isOnlyEmojis(message.content);
 
+  const imageSource = message.imageUrl || (
+    message.type !== 'voice' && !message.duration && message.mediaUrl && (
+      message.mediaUrl.startsWith('data:image') ||
+      message.mediaUrl.startsWith('http') ||
+      message.mediaUrl.startsWith('blob:') ||
+      message.content === 'Shared an image'
+    ) ? message.mediaUrl : null
+  );
+
   // Clustered Telegram/WhatsApp bubble corners
   let cornerClass = '';
   if (isSender) {
@@ -100,37 +109,31 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     >
       {/* Sender name for received messages */}
       {showSenderHeader && !isSender && (
-        <span className="text-[11px] sm:text-xs font-bold text-slate-500 ml-9 sm:ml-10 mb-1 select-none">
+        <span className="text-[11px] sm:text-xs font-bold text-slate-500 ml-10 sm:ml-11 mb-1 select-none">
           {message.senderDisplayName || message.senderUsername}
         </span>
       )}
 
       <div
-        className={`flex items-end gap-1.5 sm:gap-2.5 max-w-[92%] sm:max-w-[82%] md:max-w-[72%] min-w-0 ${
-          isSender ? 'flex-row-reverse' : 'flex-row'
+        className={`flex items-end gap-2.5 sm:gap-3 max-w-[88%] sm:max-w-[78%] md:max-w-[68%] min-w-0 ${
+          isSender ? 'ml-auto justify-end' : 'justify-start'
         }`}
       >
-        {/* Avatar for sender or receiver */}
-        <div className="w-7 sm:w-8 flex-shrink-0">
-          {showSenderHeader ? (
-            <Avatar
-              name={
-                isSender
-                  ? (currentUser?.displayName || currentUser?.username || 'You')
-                  : (message.senderDisplayName || message.senderUsername)
-              }
-              avatarUrl={
-                isSender
-                  ? (currentUser?.avatarUrl || message.senderAvatarUrl)
-                  : message.senderAvatarUrl
-              }
-              seed={isSender ? currentUser?.username : message.senderUsername}
-              size="sm"
-            />
-          ) : (
-            <div className="w-7 sm:w-8" />
-          )}
-        </div>
+        {/* Avatar for received messages only - positioned at bottom of clump with comfortable spacing like Telegram */}
+        {!isSender && (
+          <div className="w-7 sm:w-8 flex-shrink-0 select-none pb-0.5">
+            {isLastInClump ? (
+              <Avatar
+                name={message.senderDisplayName || message.senderUsername}
+                avatarUrl={message.senderAvatarUrl}
+                seed={message.senderUsername}
+                size="sm"
+              />
+            ) : (
+              <div className="w-7 sm:w-8" />
+            )}
+          </div>
+        )}
 
         {/* Message Container */}
         <div className="relative group/bubble flex flex-col min-w-0 max-w-full">
@@ -206,21 +209,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             ) : (
               <>
                 {/* Photo attachment if present */}
-                {message.imageUrl && (
-                  <div className="mb-2 overflow-hidden rounded-xl">
+                {imageSource && (
+                  <div className="mb-2 max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-black/5 shadow-xs">
                     <img
-                      src={message.imageUrl}
+                      src={imageSource}
                       alt="Attachment"
+                      loading="lazy"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedPhoto(message.imageUrl || null);
+                        setSelectedPhoto(imageSource);
                       }}
-                      className="max-h-60 sm:max-h-80 w-full object-cover rounded-xl cursor-pointer hover:opacity-95 transition-opacity"
+                      className="max-h-72 sm:max-h-96 w-auto max-w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
                     />
                   </div>
                 )}
 
-                {/* Voice message player */}
+                {/* Voice message player or text content */}
                 {message.type === 'voice' ? (
                   <VoiceMessagePlayer
                     mediaUrl={message.mediaUrl}
@@ -228,9 +232,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     isSender={isSender}
                   />
                 ) : (
-                  <div className="text-[13.5px] sm:text-[14.5px] md:text-[15px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] font-normal tracking-[-0.01em]">
-                    {renderMessageContent(message.content)}
-                  </div>
+                  !(imageSource && message.content === 'Shared an image') && message.content && (
+                    <div className="text-[13.5px] sm:text-[14.5px] md:text-[15px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] font-normal tracking-[-0.01em]">
+                      {renderMessageContent(message.content)}
+                    </div>
+                  )
                 )}
               </>
             )}

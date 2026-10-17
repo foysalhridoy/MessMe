@@ -3,6 +3,7 @@ import { Smile, Mic, Send, X, CornerDownRight, Image as ImageIcon, Ban } from 'l
 import { useChat } from '../../context/useChat';
 import { EmojiPicker } from './EmojiPicker';
 import { VoiceRecorder } from './VoiceRecorder';
+import { compressChatImage } from '../../lib/avatars';
 
 export const MessageComposer: React.FC = () => {
   const {
@@ -111,15 +112,20 @@ export const MessageComposer: React.FC = () => {
     }, 0);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setImagePreview(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressChatImage(file);
+      setImagePreview(compressed);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImagePreview(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
     e.target.value = '';
   };
 
