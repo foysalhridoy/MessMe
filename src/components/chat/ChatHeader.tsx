@@ -20,7 +20,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   if (!activeConversation) return null;
 
   const contact = activeConversation.otherParticipant;
-  const isTyping = Boolean(typingMap[activeConversation.id]);
+  const isTyping = Boolean(
+    typingMap[activeConversation.id] &&
+    contact?.username &&
+    typingMap[activeConversation.id]?.toLowerCase() === contact.username.toLowerCase()
+  );
   const userBlocked = isBlocked(contact.userId);
 
   return (

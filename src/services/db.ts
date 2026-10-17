@@ -133,8 +133,14 @@ export function ensureSupabaseRealtime() {
 
         if (!row || !row.id) return;
 
-        // Fetch sender info
-        const sender = await getUserProfileById(row.sender_id);
+        // Fast-path sender info from cache
+        let sender = userProfileCache.get(row.sender_id) || getAllStoredUsers().find((u) => u.id === row.sender_id);
+        if (!sender) {
+          getUserProfileById(row.sender_id).then((p) => {
+            if (p) userProfileCache.set(row.sender_id, p);
+          });
+        }
+
         const newMsg: Message = {
           id: row.id,
           conversationId: row.conversation_id,
@@ -154,21 +160,16 @@ export function ensureSupabaseRealtime() {
         };
 
         if (row.reply_to_id) {
-          const { data: replyMsg } = await supabase
-            .from('messages')
-            .select('id, sender_id, content, type')
-            .eq('id', row.reply_to_id)
-            .maybeSingle();
-
-          if (replyMsg) {
-            const replySender = await getUserProfileById(replyMsg.sender_id);
+          const messagesMap = getAllStoredMessages();
+          const cachedReply = (messagesMap[row.conversation_id] || []).find((m) => m.id === row.reply_to_id);
+          if (cachedReply) {
             newMsg.replyTo = {
-              id: replyMsg.id,
-              senderId: replyMsg.sender_id,
-              senderUsername: replySender?.username || 'user',
-              senderDisplayName: replySender?.displayName || replySender?.username || 'User',
-              content: replyMsg.content,
-              type: (replyMsg.type as MessageType) || 'text',
+              id: cachedReply.id,
+              senderId: cachedReply.senderId,
+              senderUsername: cachedReply.senderUsername,
+              senderDisplayName: cachedReply.senderDisplayName,
+              content: cachedReply.content,
+              type: cachedReply.type,
             };
           }
         }
@@ -1248,49 +1249,7 @@ export async function sendMessage(
     status: 'sent',
   };
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const { data: insertedMsg, error: insertError } = await supabase
-        .from('messages')
-        .insert({
-          id: messageId,
-          conversation_id: conversationId,
-          sender_id: sender.id,
-          content,
-          type: type === 'voice' ? 'voice' : 'text',
-          media_url: finalMediaUrl || null,
-          duration: duration || null,
-          reply_to_id: replyTo?.id || null,
-          is_deleted: false,
-          created_at: now,
-        })
-        .select('*, profiles(id, username, display_name, avatar_url)')
-        .single();
-
-      if (insertError) {
-        console.error('Supabase message insert error:', insertError);
-        throw new Error(insertError.message);
-      }
-
-      await supabase
-        .from('conversations')
-        .update({
-          last_message_at: now,
-          updated_at: now,
-        })
-        .eq('id', conversationId);
-
-      if (insertedMsg) {
-        newMessage.id = insertedMsg.id;
-        newMessage.createdAt = insertedMsg.created_at;
-      }
-    } catch (err: unknown) {
-      console.warn('Supabase send message error, continuing with local sync:', err);
-    }
-  }
-
-  // Save to stored messages cache
+  // 1. Immediately save to local stored messages cache (0ms)
   const messagesMap = getAllStoredMessages();
   const currentList = messagesMap[conversationId] || [];
   if (!currentList.some((m) => m.id === newMessage.id)) {
@@ -1298,14 +1257,14 @@ export async function sendMessage(
     saveStoredMessages(messagesMap);
   }
 
-  // Update conversation last message in local cache
+  // 2. Immediately update conversation in local cache (0ms)
   if (conv) {
     conv.lastMessage = newMessage;
     conv.updatedAt = now;
     saveStoredConversations(sender.id, userConvs);
   }
 
-  // Broadcast event locally and cross-tab
+  // 3. Immediately broadcast locally and across tabs (0ms)
   broadcastEvent({
     type: 'NEW_MESSAGE',
     conversationId,
@@ -1313,6 +1272,45 @@ export async function sendMessage(
     senderUsername: sender.username,
     message: newMessage,
   });
+
+  // 4. Background sync to Supabase without blocking the return
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    (async () => {
+      try {
+        const { data: insertedMsg, error: insertError } = await supabase
+          .from('messages')
+          .insert({
+            id: messageId,
+            conversation_id: conversationId,
+            sender_id: sender.id,
+            content,
+            type: type === 'voice' ? 'voice' : 'text',
+            media_url: finalMediaUrl || null,
+            duration: duration || null,
+            reply_to_id: replyTo?.id || null,
+            is_deleted: false,
+            created_at: now,
+          })
+          .select('*, profiles(id, username, display_name, avatar_url)')
+          .single();
+
+        if (insertError) {
+          console.warn('Supabase message insert notice:', insertError.message);
+        } else if (insertedMsg) {
+          await supabase
+            .from('conversations')
+            .update({
+              last_message_at: now,
+              updated_at: now,
+            })
+            .eq('id', conversationId);
+        }
+      } catch (err: unknown) {
+        console.warn('Supabase background send notice:', err);
+      }
+    })();
+  }
 
   return newMessage;
 }

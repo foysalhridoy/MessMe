@@ -57,11 +57,19 @@ export const MessageComposer: React.FC = () => {
   const handleSend = async () => {
     if ((!text.trim() && !imagePreview) || isRecordingVoice) return;
 
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    notifyTyping(false);
+
     if (imagePreview) {
-      await sendImageMessage(imagePreview, text.trim());
+      const img = imagePreview;
+      const caption = text.trim();
       setImagePreview(null);
       setText('');
       if (activeConversation) setDraftForConversation(activeConversation.id, '');
+      await sendImageMessage(img, caption);
       return;
     }
 
@@ -70,12 +78,10 @@ export const MessageComposer: React.FC = () => {
     if (activeConversation) {
       setDraftForConversation(activeConversation.id, '');
     }
-    notifyTyping(false);
-    await sendText(content);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.focus();
     }
+    await sendText(content);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -268,6 +274,7 @@ export const MessageComposer: React.FC = () => {
           {(text.trim() || imagePreview) && (
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleSend}
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 active:bg-indigo-800 transition-all shadow-md shadow-indigo-600/25 cursor-pointer flex-shrink-0 active:scale-95"
               title="Send message (Enter)"

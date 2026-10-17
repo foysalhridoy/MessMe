@@ -53,6 +53,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
   const isNearBottomRef = useRef(true);
   const prevMessagesCountRef = useRef(activeMessages.length);
 
+  const otherParticipant = activeConversation?.otherParticipant;
+  const isOtherTyping = Boolean(
+    activeConversation &&
+    otherParticipant?.username &&
+    typingMap[activeConversation.id] &&
+    typingMap[activeConversation.id]?.toLowerCase() === otherParticipant.username.toLowerCase()
+  );
+
   // Filter messages matching search query
   const matchingMessageIds = searchQuery.trim()
     ? activeMessages
@@ -81,20 +89,39 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     }
   }, [activeConversation?.id]);
 
-  // Scroll to bottom on new message send or arrival (if near bottom)
+  // Scroll to bottom on new message send or arrival (always scroll if self-sent or near bottom)
   useEffect(() => {
-    if (isNearBottomRef.current && messagesContainerRef.current) {
+    const lastMsg = activeMessages[activeMessages.length - 1];
+    const isSelfSender = Boolean(currentUser && lastMsg && lastMsg.senderId === currentUser.id);
+
+    if ((isSelfSender || isNearBottomRef.current) && messagesContainerRef.current) {
       messagesContainerRef.current.scrollTo({
         top: messagesContainerRef.current.scrollHeight,
-        behavior: 'smooth',
+        behavior: isSelfSender ? 'auto' : 'smooth',
       });
       setUnreadBelowCount(0);
+      isNearBottomRef.current = true;
     } else if (activeMessages.length > prevMessagesCountRef.current) {
       // New message arrived while scrolled up
       setUnreadBelowCount((prev) => prev + (activeMessages.length - prevMessagesCountRef.current));
     }
     prevMessagesCountRef.current = activeMessages.length;
-  }, [activeMessages.length]);
+  }, [activeMessages, currentUser]);
+
+  // Keep chat anchored to bottom when virtual keyboard opens or closes
+  useEffect(() => {
+    if (!window.visualViewport) return;
+    const handleViewportResize = () => {
+      if (messagesContainerRef.current && isNearBottomRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    };
+
+    window.visualViewport.addEventListener('resize', handleViewportResize);
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleViewportResize);
+    };
+  }, []);
 
   const handleScroll = () => {
     if (!messagesContainerRef.current) return;
@@ -286,13 +313,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
             )}
 
             {/* Live Telegram-Style Typing Bubble */}
-            {activeConversation && typingMap[activeConversation.id] && (
+            {isOtherTyping && otherParticipant && (
               <div className="flex items-end gap-2 mt-2.5 mb-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
                 <div className="w-7 sm:w-8 flex-shrink-0">
                   <Avatar
-                    name={activeConversation.otherParticipant.displayName || activeConversation.otherParticipant.username}
-                    avatarUrl={activeConversation.otherParticipant.avatarUrl}
-                    seed={activeConversation.otherParticipant.username}
+                    name={otherParticipant.displayName || otherParticipant.username}
+                    avatarUrl={otherParticipant.avatarUrl}
+                    seed={otherParticipant.username}
                     size="sm"
                   />
                 </div>

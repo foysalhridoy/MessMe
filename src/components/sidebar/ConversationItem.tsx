@@ -31,7 +31,11 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
   const [showMenu, setShowMenu] = useState(false);
 
   const contact = conversation.otherParticipant;
-  const isTyping = Boolean(typingMap[conversation.id]);
+  const isTyping = Boolean(
+    contact?.username &&
+    typingMap[conversation.id] &&
+    typingMap[conversation.id]?.toLowerCase() === contact.username.toLowerCase()
+  );
   const userBlocked = isBlocked(contact.userId);
 
   return (

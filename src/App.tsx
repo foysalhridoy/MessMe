@@ -27,6 +27,30 @@ export function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Synchronize CSS variable --app-height with visualViewport to stay perfectly above mobile keyboard
+  useEffect(() => {
+    const updateAppHeight = () => {
+      const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      document.documentElement.style.setProperty('--app-height', `${height}px`);
+    };
+
+    updateAppHeight();
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateAppHeight);
+      window.visualViewport.addEventListener('scroll', updateAppHeight);
+    }
+    window.addEventListener('resize', updateAppHeight);
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', updateAppHeight);
+        window.visualViewport.removeEventListener('scroll', updateAppHeight);
+      }
+      window.removeEventListener('resize', updateAppHeight);
+    };
+  }, []);
+
   // Mobile Browser History Back Support (always declared at top for Rules of Hooks)
   useEffect(() => {
     if (!isMobile || !currentUser) return;
@@ -46,7 +70,10 @@ export function App() {
   // 1. Initial Authentication Check Loader
   if (isLoadingAuth) {
     return (
-      <div className="h-[100dvh] w-full bg-white flex flex-col items-center justify-center p-4 select-none">
+      <div
+        style={{ height: 'var(--app-height, 100dvh)' }}
+        className="w-full bg-white flex flex-col items-center justify-center p-4 select-none"
+      >
         <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-600/20 mb-3 animate-pulse">
           <MessageSquare className="w-6 h-6 fill-current" />
         </div>
@@ -72,7 +99,10 @@ export function App() {
   // 3. Main Messaging Interface
 
   return (
-    <div className="h-[100dvh] w-full max-w-[100vw] bg-white flex overflow-hidden font-sans overscroll-none select-none relative">
+    <div
+      style={{ height: 'var(--app-height, 100dvh)', maxHeight: 'var(--app-height, 100dvh)' }}
+      className="w-full max-w-[100vw] bg-white flex overflow-hidden font-sans overscroll-none select-none relative"
+    >
       {/* Sidebar: full width slide on mobile; fixed width column on desktop */}
       <Sidebar
         className={`${

@@ -156,6 +156,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           playNotificationSound();
         }
 
+        // Instantly dismiss typing indicator for this conversation when a message arrives
+        setTypingMap((prev) => {
+          if (!prev[msg.conversationId]) return prev;
+          const next = { ...prev };
+          delete next[msg.conversationId];
+          return next;
+        });
+
         // If message belongs to active conversation, append
         if (currentActive && msg.conversationId === currentActive.id) {
           setActiveMessages((prev) => {
@@ -212,11 +220,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
       } else if (payload.type === 'TYPING' && payload.conversationId) {
-        const { conversationId, isTyping, senderUsername } = payload;
+        const { conversationId, isTyping, senderUsername, senderId } = payload;
+        // Never process own typing events to avoid self-typing confusion
+        if (
+          (senderId && loggedInUser?.id && senderId === loggedInUser.id) ||
+          (senderUsername && loggedInUser?.username && senderUsername.toLowerCase() === loggedInUser.username.toLowerCase())
+        ) {
+          return;
+        }
+
         setTypingMap((prev) => {
           if (isTyping && senderUsername) {
             return { ...prev, [conversationId]: senderUsername };
           }
+          if (!prev[conversationId]) return prev;
           const next = { ...prev };
           delete next[conversationId];
           return next;
@@ -445,6 +462,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setReplyingTo(null);
     playSendSound();
+
+    // Immediately clear own typing map
+    setTypingMap((prev) => {
+      if (!prev[activeConversation.id]) return prev;
+      const next = { ...prev };
+      delete next[activeConversation.id];
+      return next;
+    });
+
     await sendMessage(activeConversation.id, currentUser, clean, 'text', undefined, undefined, replyRef);
   };
 
@@ -452,6 +478,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser || !activeConversation) return;
 
     try {
+      setTypingMap((prev) => {
+        if (!prev[activeConversation.id]) return prev;
+        const next = { ...prev };
+        delete next[activeConversation.id];
+        return next;
+      });
+
       const mediaUrl = await uploadVoiceAudio(blob, currentUser.id);
       await sendMessage(
         activeConversation.id,
@@ -472,6 +505,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sendImageMessage = async (imageDataUrl: string, caption = '') => {
     if (!currentUser || !activeConversation) return;
     try {
+      setTypingMap((prev) => {
+        if (!prev[activeConversation.id]) return prev;
+        const next = { ...prev };
+        delete next[activeConversation.id];
+        return next;
+      });
+
       await sendMessage(
         activeConversation.id,
         currentUser,
