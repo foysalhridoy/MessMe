@@ -10,17 +10,23 @@ import {
   Bell,
   Check,
   Maximize2,
+  Download,
+  Calendar,
+  Layers,
 } from 'lucide-react';
 import { useChat } from '../../context/useChat';
 import { Avatar } from '../common/Avatar';
 import { formatLastSeen } from '../../lib/presence';
 import { requestNotificationPermission, getNotificationPermission } from '../../lib/notifications';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+import type { Message } from '../../types';
 
 interface ConversationInfoDrawerProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+type MediaTab = 'all' | 'photos' | 'voice';
 
 export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
   isOpen,
@@ -40,7 +46,8 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
   } = useChat();
 
   const [notifPermission, setNotifPermission] = useState(getNotificationPermission);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<{ url: string; sender?: string; date?: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<MediaTab>('photos');
 
   if (!isOpen || !activeConversation) return null;
 
@@ -50,8 +57,48 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
   const isMuted = Boolean(liveConv.isMuted);
 
   const contact = liveConv.otherParticipant;
-  const voiceNotes = activeMessages.filter((m) => m.type === 'voice' && !m.isDeleted);
-  const sharedImages = activeMessages.filter((m) => Boolean(m.imageUrl) && !m.isDeleted);
+
+  // Robust detection for voice notes
+  const isVoiceMessage = (m: Message): boolean => {
+    if (m.isDeleted) return false;
+    return (
+      m.type === 'voice' ||
+      Boolean(m.duration) ||
+      Boolean(
+        m.mediaUrl &&
+          (m.mediaUrl.includes('audio') ||
+            m.mediaUrl.endsWith('.webm') ||
+            m.mediaUrl.endsWith('.mp3') ||
+            m.mediaUrl.endsWith('.ogg') ||
+            m.mediaUrl.endsWith('.wav'))
+      )
+    );
+  };
+
+  // Robust detection for shared photos
+  const getMessageImage = (m: Message): string | null => {
+    if (m.isDeleted) return null;
+    if (m.imageUrl) return m.imageUrl;
+    if (
+      m.type !== 'voice' &&
+      !m.duration &&
+      m.mediaUrl &&
+      (m.mediaUrl.startsWith('data:image') ||
+        m.mediaUrl.startsWith('http') ||
+        m.mediaUrl.startsWith('blob:') ||
+        m.content === 'Shared an image')
+    ) {
+      return m.mediaUrl;
+    }
+    return null;
+  };
+
+  const voiceNotes = activeMessages.filter(isVoiceMessage);
+  const sharedImages = activeMessages
+    .map((m) => ({ msg: m, url: getMessageImage(m) }))
+    .filter((item): item is { msg: Message; url: string } => Boolean(item.url));
+
+  const totalMedia = sharedImages.length + voiceNotes.length;
 
   const handleEnableBackgroundAlerts = async () => {
     const granted = await requestNotificationPermission();
@@ -71,10 +118,17 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
         onClick={onClose}
       />
 
-      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-88 md:w-96 xl:static xl:z-30 bg-white border-l border-slate-200/90 flex flex-col shadow-2xl xl:shadow-none animate-in slide-in-from-right duration-200 select-none h-full max-h-screen">
+      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 md:w-[420px] xl:static xl:z-30 xl:w-[420px] xl:flex-shrink-0 bg-white border-l border-slate-200/90 flex flex-col shadow-2xl xl:shadow-none animate-in slide-in-from-right duration-200 select-none h-full max-h-screen">
         {/* Sticky Header */}
         <div className="h-16 px-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white/95 backdrop-blur-md sticky top-0 z-20">
-          <h4 className="text-base font-extrabold text-slate-900 tracking-tight">Conversation Info</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-base font-extrabold text-slate-900 tracking-tight">Conversation Info</h4>
+            {totalMedia > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                {totalMedia} media
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-800 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
@@ -85,26 +139,26 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
         </div>
 
         {/* Scrollable Container for all content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-slate-100/90 pb-8 overscroll-contain">
-          {/* Profile summary */}
-          <div className="p-6 text-center">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-slate-100/90 pb-10 overscroll-contain">
+          {/* Profile summary - clean and proportional */}
+          <div className="p-5 text-center bg-gradient-to-b from-slate-50/60 to-white">
             <Avatar
               name={contact.displayName || contact.username}
               avatarUrl={contact.avatarUrl}
               seed={contact.username}
-              size="xl"
+              size="lg"
               isOnline={contact.isOnline}
-              className="mx-auto mb-3.5 ring-4 ring-indigo-50/70"
+              className="mx-auto mb-3 ring-4 ring-indigo-50/80 shadow-xs"
             />
-            <h3 className="text-lg font-extrabold text-slate-900 truncate tracking-tight">
+            <h3 className="text-base sm:text-lg font-extrabold text-slate-900 truncate tracking-tight">
               {contact.displayName || contact.username}
             </h3>
-            <p className="text-sm text-indigo-600 font-semibold mt-0.5">@{contact.username}</p>
+            <p className="text-xs sm:text-sm text-indigo-600 font-semibold mt-0.5">@{contact.username}</p>
 
             {/* Activity Status Badge */}
-            <div className="mt-2.5 flex items-center justify-center">
+            <div className="mt-2 flex items-center justify-center">
               <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold ${
                   contact.isOnline
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs'
                     : 'bg-slate-100 text-slate-600 border border-slate-200/80'
@@ -124,15 +178,15 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
             )}
 
             {contact.about && (
-              <p className="text-xs sm:text-sm text-slate-600 mt-3.5 leading-relaxed bg-slate-50 p-3.5 rounded-2xl border border-slate-100 text-left">
+              <p className="text-xs text-slate-600 mt-3 leading-relaxed bg-slate-50 p-3 rounded-2xl border border-slate-100 text-left">
                 {contact.about}
               </p>
             )}
           </div>
 
-          {/* Quick preferences */}
-          <div className="p-4 space-y-2">
-            <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 mb-1">
+          {/* Quick preferences / Chat Settings */}
+          <div className="p-4 space-y-2.5">
+            <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
               Chat Settings
             </h5>
 
@@ -242,89 +296,232 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
             </button>
           </div>
 
-          {/* Shared Photos Section */}
-          <div className="p-4 space-y-3">
+          {/* DEDICATED MEDIA & VOICE HUB: Right below Pin & Mute options with ample, proper space */}
+          <div className="p-4 space-y-3.5 bg-slate-50/40">
             <div className="flex items-center justify-between">
-              <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-indigo-500" />
-                <span>Shared Photos</span>
-              </h5>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                {sharedImages.length}
-              </span>
+              <div>
+                <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-indigo-600" />
+                  <span>Shared Media & Audio</span>
+                </h5>
+                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  Photos and voice recordings in this chat
+                </p>
+              </div>
             </div>
 
-            {sharedImages.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-                {sharedImages.map((img) => (
-                  <div
-                    key={img.id}
-                    onClick={() => setSelectedImage(img.imageUrl || null)}
-                    className="group relative aspect-square rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md transition-all cursor-pointer bg-slate-100"
-                  >
-                    <img
-                      src={img.imageUrl}
-                      alt="Shared media"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                    <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/25 transition-colors flex items-center justify-center">
-                      <Maximize2 className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
-                <ImageIcon className="w-5 h-5 text-slate-300 mx-auto mb-1.5" />
-                <p className="text-xs text-slate-400 font-medium">No photos shared in this chat yet</p>
-              </div>
-            )}
-          </div>
+            {/* Interactive Segmented Tabs with Counters */}
+            <div className="flex items-center p-1 bg-slate-100/90 rounded-2xl border border-slate-200/70 gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('photos')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'photos'
+                    ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/70'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Photos</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    activeTab === 'photos'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {sharedImages.length}
+                </span>
+              </button>
 
-          {/* Shared Voice Notes Section */}
-          <div className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                <Mic className="w-4 h-4 text-indigo-500" />
-                <span>Voice Notes</span>
-              </h5>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                {voiceNotes.length}
-              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('voice')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'voice'
+                    ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/70'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Voice</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    activeTab === 'voice'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {voiceNotes.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('all')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'all'
+                    ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-slate-200/70'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                }`}
+              >
+                <span>All</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    activeTab === 'all'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {totalMedia}
+                </span>
+              </button>
             </div>
 
-            {voiceNotes.length > 0 ? (
-              <div className="space-y-2.5">
-                {voiceNotes.map((vn) => (
-                  <div
-                    key={vn.id}
-                    className="p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200/90 transition-colors space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-800 truncate">
-                        @{vn.senderUsername}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-medium flex-shrink-0">
-                        {new Date(vn.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+            {/* TAB CONTENT: Generous viewing space */}
+            <div className="min-h-[220px]">
+              {/* --- PHOTOS VIEW --- */}
+              {(activeTab === 'photos' || activeTab === 'all') && (
+                <div className="space-y-3">
+                  {activeTab === 'all' && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <ImageIcon className="w-3 h-3 text-indigo-500" />
+                        Photos ({sharedImages.length})
                       </span>
                     </div>
-                    <VoiceMessagePlayer
-                      mediaUrl={vn.mediaUrl}
-                      duration={vn.duration}
-                      isSender={vn.senderId !== contact.userId}
-                    />
+                  )}
+
+                  {sharedImages.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                      {sharedImages.map(({ msg, url }) => (
+                        <div
+                          key={msg.id}
+                          onClick={() =>
+                            setSelectedImage({
+                              url,
+                              sender: msg.senderUsername,
+                              date: new Date(msg.createdAt).toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              }),
+                            })
+                          }
+                          className="group relative aspect-square rounded-2xl overflow-hidden border border-slate-200/90 shadow-xs hover:shadow-md transition-all cursor-pointer bg-slate-100 ring-2 ring-transparent hover:ring-indigo-500/30"
+                        >
+                          <img
+                            src={url}
+                            alt="Shared media"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            loading="lazy"
+                          />
+                          {/* Hover Overlay with Preview Icon */}
+                          <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/35 transition-colors flex flex-col items-center justify-center p-1.5">
+                            <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+                            <span className="text-[10px] text-white/90 font-semibold opacity-0 group-hover:opacity-100 transition-opacity truncate max-w-full mt-1">
+                              @{msg.senderUsername}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    activeTab === 'photos' && (
+                      <div className="py-8 px-4 rounded-2xl bg-white border border-slate-200/70 text-center shadow-xs">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto mb-2.5">
+                          <ImageIcon className="w-6 h-6 stroke-[1.8]" />
+                        </div>
+                        <h6 className="text-xs font-bold text-slate-700">No photos shared yet</h6>
+                        <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] mx-auto leading-relaxed">
+                          Photos sent or received in this chat will be organized here with high-resolution preview.
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {/* --- VOICE NOTES VIEW --- */}
+              {(activeTab === 'voice' || activeTab === 'all') && (
+                <div className={`space-y-2.5 ${activeTab === 'all' ? 'pt-4' : ''}`}>
+                  {activeTab === 'all' && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Mic className="w-3 h-3 text-indigo-500" />
+                        Voice Notes ({voiceNotes.length})
+                      </span>
+                    </div>
+                  )}
+
+                  {voiceNotes.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {voiceNotes.map((vn) => {
+                        const isFromSender = vn.senderId !== contact.userId;
+                        return (
+                          <div
+                            key={vn.id}
+                            className="p-3.5 rounded-2xl bg-white border border-slate-200/80 hover:border-indigo-200 shadow-xs hover:shadow-sm transition-all space-y-2"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    isFromSender ? 'bg-indigo-500' : 'bg-emerald-500'
+                                  }`}
+                                />
+                                @{vn.senderUsername}
+                                {isFromSender && (
+                                  <span className="text-[10px] font-normal text-slate-400">(You)</span>
+                                )}
+                              </span>
+                              <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(vn.createdAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                            <VoiceMessagePlayer
+                              mediaUrl={vn.mediaUrl}
+                              duration={vn.duration}
+                              isSender={isFromSender}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    activeTab === 'voice' && (
+                      <div className="py-8 px-4 rounded-2xl bg-white border border-slate-200/70 text-center shadow-xs">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto mb-2.5">
+                          <Mic className="w-6 h-6 stroke-[1.8]" />
+                        </div>
+                        <h6 className="text-xs font-bold text-slate-700">No voice notes recorded</h6>
+                        <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] mx-auto leading-relaxed">
+                          Voice audio clips recorded in this conversation will be listed here with full playback controls.
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {/* Empty state when 'all' tab is selected but nothing shared */}
+              {activeTab === 'all' && totalMedia === 0 && (
+                <div className="py-8 px-4 rounded-2xl bg-white border border-slate-200/70 text-center shadow-xs">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto mb-2.5">
+                    <Layers className="w-6 h-6 stroke-[1.8]" />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
-                <Mic className="w-5 h-5 text-slate-300 mx-auto mb-1.5" />
-                <p className="text-xs text-slate-400 font-medium">No voice notes recorded yet</p>
-              </div>
-            )}
+                  <h6 className="text-xs font-bold text-slate-700">No media in this chat yet</h6>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] mx-auto leading-relaxed">
+                    Photos and voice notes exchanged with @{contact.username} will be organized here.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Bottom Danger actions */}
@@ -375,24 +572,57 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
       {/* Full-screen Lightbox Modal for Shared Photos */}
       {selectedImage && (
         <div
-          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in duration-200"
           onClick={() => setSelectedImage(null)}
         >
-          <button
-            onClick={() => setSelectedImage(null)}
-            className="absolute top-4 right-4 p-2.5 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-colors cursor-pointer shadow-lg"
-            aria-label="Close image preview"
-          >
-            <X className="w-6 h-6" />
-          </button>
-          <img
-            src={selectedImage}
-            alt="Full size shared media"
-            className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+          {/* Top toolbar */}
+          <div
+            className="w-full max-w-4xl flex items-center justify-between pb-3 px-2 text-white select-none"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <div>
+              {selectedImage.sender && (
+                <p className="text-sm font-bold text-white">@{selectedImage.sender}</p>
+              )}
+              {selectedImage.date && (
+                <p className="text-xs text-white/70">{selectedImage.date}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={selectedImage.url}
+                download={`messme-photo-${Date.now()}.png`}
+                target="_blank"
+                rel="noreferrer"
+                className="p-2.5 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold shadow-lg"
+                title="Download photo"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Save</span>
+              </a>
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="p-2.5 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-colors cursor-pointer shadow-lg"
+                aria-label="Close image preview"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="relative flex items-center justify-center max-w-4xl max-h-[82vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={selectedImage.url}
+              alt="Full size shared media"
+              className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl ring-1 ring-white/10"
+            />
+          </div>
         </div>
       )}
     </>
   );
 };
+
