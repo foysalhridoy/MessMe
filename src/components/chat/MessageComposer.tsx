@@ -4,6 +4,7 @@ import { useChat } from '../../context/useChat';
 import { EmojiPicker } from './EmojiPicker';
 import { VoiceRecorder } from './VoiceRecorder';
 import { compressChatImage } from '../../lib/avatars';
+import { Avatar } from '../common/Avatar';
 
 export const MessageComposer: React.FC = () => {
   const {
@@ -18,6 +19,7 @@ export const MessageComposer: React.FC = () => {
     notifyTyping,
     isBlocked,
     unblockUser,
+    typingMap,
   } = useChat();
 
   const [text, setText] = useState(() => (activeConversation ? drafts[activeConversation.id] || '' : ''));
@@ -157,8 +159,41 @@ export const MessageComposer: React.FC = () => {
     );
   }
 
+  const otherParticipant = activeConversation?.otherParticipant;
+  const isOtherTyping = Boolean(
+    activeConversation &&
+    otherParticipant?.username &&
+    typingMap[activeConversation.id] &&
+    typingMap[activeConversation.id]?.toLowerCase() === otherParticipant.username.toLowerCase()
+  );
+
   return (
     <div className="relative border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-2 sm:px-4 md:px-8 pt-2 sm:pt-2.5 pb-[max(0.6rem,calc(env(safe-area-inset-bottom,0px)+0.4rem))] select-none flex-shrink-0 z-20">
+      {/* Docked High-Profile Telegram/WhatsApp-style Typing Indicator */}
+      {isOtherTyping && otherParticipant && (
+        <div className="mb-2 px-3 py-1.5 bg-indigo-50/95 border border-indigo-200/90 rounded-2xl flex items-center justify-between text-xs text-indigo-700 animate-in fade-in slide-in-from-bottom-1 duration-150 shadow-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0">
+              <Avatar
+                name={otherParticipant.displayName || otherParticipant.username}
+                avatarUrl={otherParticipant.avatarUrl}
+                seed={otherParticipant.username}
+                size="sm"
+                className="w-5 h-5 text-[9px]"
+              />
+            </div>
+            <span className="font-semibold truncate">
+              {otherParticipant.displayName || otherParticipant.username} is typing
+            </span>
+            <span className="flex items-center gap-1 ml-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-1" />
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-2" />
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-3" />
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 1. Quoted Reply Header if Replying */}
       {replyingTo && (
         <div className="mb-2 p-2.5 sm:p-3 bg-slate-50 border border-indigo-200/70 rounded-2xl flex items-center justify-between gap-3 text-sm animate-in slide-in-from-bottom-2 duration-150 shadow-xs">
@@ -259,6 +294,9 @@ export const MessageComposer: React.FC = () => {
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
+            onFocus={() => {
+              window.dispatchEvent(new CustomEvent('messme:focus-composer'));
+            }}
             placeholder="Type a message..."
             className="flex-1 bg-transparent border-0 text-slate-900 placeholder:text-slate-400 text-[14px] sm:text-[15px] py-2 px-1.5 resize-none focus:outline-none focus:ring-0 leading-normal max-h-32 sm:max-h-36 overflow-y-auto font-normal tracking-[-0.01em]"
           />

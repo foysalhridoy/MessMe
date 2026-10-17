@@ -91,35 +91,77 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
 
   // Scroll to bottom on new message send or arrival (always scroll if self-sent or near bottom)
   useEffect(() => {
+    if (!messagesContainerRef.current || activeMessages.length === 0) return;
+
     const lastMsg = activeMessages[activeMessages.length - 1];
     const isSelfSender = Boolean(currentUser && lastMsg && lastMsg.senderId === currentUser.id);
 
-    if ((isSelfSender || isNearBottomRef.current) && messagesContainerRef.current) {
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+
+    // If sent by user, or near bottom (within 350px), always scroll down smoothly to show new message
+    if (isSelfSender || isNearBottomRef.current || distanceFromBottom < 350) {
       messagesContainerRef.current.scrollTo({
         top: messagesContainerRef.current.scrollHeight,
         behavior: isSelfSender ? 'auto' : 'smooth',
       });
+      // Safety tick to guarantee full visibility after message DOM layout completes
+      const t = setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 100);
       setUnreadBelowCount(0);
       isNearBottomRef.current = true;
+      return () => clearTimeout(t);
     } else if (activeMessages.length > prevMessagesCountRef.current) {
-      // New message arrived while scrolled up
+      // New message arrived while user is scrolled up reading old history
       setUnreadBelowCount((prev) => prev + (activeMessages.length - prevMessagesCountRef.current));
     }
     prevMessagesCountRef.current = activeMessages.length;
   }, [activeMessages, currentUser]);
 
-  // Keep chat anchored to bottom when virtual keyboard opens or closes
+  // Smoothly scroll to bottom when other user starts typing
   useEffect(() => {
-    if (!window.visualViewport) return;
+    if (!isOtherTyping || !messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    if (distanceFromBottom < 400 || isNearBottomRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [isOtherTyping]);
+
+  // Keep chat anchored to bottom when virtual keyboard opens, closes, or resizes
+  useEffect(() => {
     const handleViewportResize = () => {
-      if (messagesContainerRef.current && isNearBottomRef.current) {
+      if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        setTimeout(() => {
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          }
+        }, 150);
+        setTimeout(() => {
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          }
+        }, 300);
       }
     };
 
-    window.visualViewport.addEventListener('resize', handleViewportResize);
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
+    window.visualViewport?.addEventListener('scroll', handleViewportResize);
+    window.addEventListener('resize', handleViewportResize);
+    window.addEventListener('messme:focus-composer', handleViewportResize);
+
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportResize);
+      window.visualViewport?.removeEventListener('scroll', handleViewportResize);
+      window.removeEventListener('resize', handleViewportResize);
+      window.removeEventListener('messme:focus-composer', handleViewportResize);
     };
   }, []);
 
@@ -127,7 +169,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     if (!messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const isNearBottom = distanceFromBottom < 100;
+    const isNearBottom = distanceFromBottom < 200;
     isNearBottomRef.current = isNearBottom;
     setShowScrollBottom(!isNearBottom);
     if (isNearBottom) {
@@ -141,6 +183,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
         top: messagesContainerRef.current.scrollHeight,
         behavior: 'smooth',
       });
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 120);
       setUnreadBelowCount(0);
     }
   };
@@ -330,6 +377,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
                 </div>
               </div>
             )}
+
+            {/* Bottom spacer to prevent message bubble touching composer */}
+            <div className="h-3 sm:h-4 flex-shrink-0" />
           </div>
         </div>
 
