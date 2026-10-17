@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ShieldAlert, ArrowRight } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface SessionRecoveryModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export const SessionRecoveryModal: React.FC<SessionRecoveryModalProps> = ({ isOp
 
   const handleRestore = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !sessionKey.trim()) return;
+    if (!username.trim()) return;
 
     setIsSubmitting(true);
     try {
@@ -70,20 +70,19 @@ export const SessionRecoveryModal: React.FC<SessionRecoveryModalProps> = ({ isOp
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-              Session Backup Key
+              Session Backup Key (Optional)
             </label>
             <div className="relative">
               <input
                 type="password"
                 value={sessionKey}
                 onChange={(e) => setSessionKey(e.target.value.trim())}
-                placeholder="mm_tok_..."
+                placeholder="mm_tok_... (leave empty to log in directly)"
                 className="w-full px-3 py-2.5 bg-slate-50 focus:bg-white rounded-xl border border-slate-200 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
               />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              The 64-character token exported from your profile settings on this or another device.
+              Optional backup token. If left blank, you will be connected directly with your username.
             </p>
           </div>
 

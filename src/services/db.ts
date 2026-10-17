@@ -1,21 +1,25 @@
 /**
  * MessMe Database & Real-Time Sync Service
- * Seamlessly interfaces with Supabase (when configured) or the Local Multi-Tab Engine.
+ * Seamlessly interfaces with Supabase for cross-device real-time sync,
+ * with resilient local caching and multi-tab broadcasting.
  */
 
 import { getSupabaseClient } from '../lib/supabase';
-import type { Conversation, DisappearingDuration, Message, MessageReaction, MessageType, UserProfile } from '../types';
+import type {
+  Conversation,
+  Message,
+  MessageReaction,
+  MessageType,
+  UserProfile,
+} from '../types';
 import { generateUUID, normalizeUsername } from '../lib/identity';
 
 const STORAGE_USERS = 'messme_all_users_registry';
 const STORAGE_CONVERSATIONS = 'messme_conversations_store';
 const STORAGE_MESSAGES = 'messme_messages_store';
+const STORAGE_BLOCKED = 'messme_blocked_users';
 
-// Legacy mock accounts to purge completely
-const LEGACY_MOCK_USERNAMES = new Set(['elena_ux', 'marcus_dev', 'sophia_ai', 'david_sound']);
-const LEGACY_MOCK_USER_IDS = new Set(['user_elena_ux', 'user_marcus_dev', 'user_sophia_ai', 'user_david_sound']);
-
-// BroadcastChannel for cross-tab real-time communication
+// BroadcastChannel for cross-tab real-time communication on the same device
 let broadcastBus: BroadcastChannel | null = null;
 if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   try {
@@ -34,8 +38,6 @@ export interface RealtimeEventPayload {
     | 'TYPING'
     | 'PRESENCE'
     | 'PROFILE_UPDATE'
-    | 'DISAPPEARING_DURATION_UPDATE'
-    | 'MESSAGES_PURGED'
     | 'BLOCK_STATUS_UPDATE';
   conversationId?: string;
   senderId?: string;
@@ -44,14 +46,18 @@ export interface RealtimeEventPayload {
   reaction?: MessageReaction;
   isTyping?: boolean;
   profile?: UserProfile;
-  disappearingDuration?: DisappearingDuration;
 }
 
 type RealtimeListener = (payload: RealtimeEventPayload) => void;
 const listeners = new Set<RealtimeListener>();
 
+// Cache for user profiles fetched from Supabase
+const userProfileCache = new Map<string, UserProfile>();
+
 export function subscribeToRealtimeEvents(listener: RealtimeListener): () => void {
   listeners.add(listener);
+  // Ensure Supabase realtime channel is subscribed
+  ensureSupabaseRealtime();
   return () => {
     listeners.delete(listener);
   };
@@ -59,7 +65,7 @@ export function subscribeToRealtimeEvents(listener: RealtimeListener): () => voi
 
 function broadcastEvent(payload: RealtimeEventPayload) {
   // Notify in-process listeners
-  listeners.forEach(l => {
+  listeners.forEach((l) => {
     try {
       l(payload);
     } catch (e) {
@@ -80,7 +86,7 @@ function broadcastEvent(payload: RealtimeEventPayload) {
 if (broadcastBus) {
   broadcastBus.onmessage = (event) => {
     if (event.data && typeof event.data === 'object') {
-      listeners.forEach(l => {
+      listeners.forEach((l) => {
         try {
           l(event.data as RealtimeEventPayload);
         } catch (e) {
@@ -92,6 +98,233 @@ if (broadcastBus) {
 }
 
 // -------------------------------------------------------------
+// SUPABASE REALTIME CHANNEL (CROSS-DEVICE SYNC)
+// -------------------------------------------------------------
+let supabaseChannelInstance: ReturnType<NonNullable<ReturnType<typeof getSupabaseClient>>['channel']> | null = null;
+let isRealtimeSubscribed = false;
+
+export function ensureSupabaseRealtime() {
+  const supabase = getSupabaseClient();
+  if (!supabase || isRealtimeSubscribed) return;
+
+  try {
+    isRealtimeSubscribed = true;
+    supabaseChannelInstance = supabase.channel('messme_global_realtime', {
+      config: { broadcast: { self: false } },
+    });
+
+    // 1. Listen for new messages inserted on ANY device
+    supabaseChannelInstance.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'messages' },
+      async (payload) => {
+        const row = payload.new as {
+          id: string;
+          conversation_id: string;
+          sender_id: string;
+          content: string;
+          type?: string;
+          media_url?: string;
+          duration?: number;
+          reply_to_id?: string;
+          is_deleted?: boolean;
+          created_at: string;
+        };
+
+        if (!row || !row.id) return;
+
+        // Fetch sender info
+        const sender = await getUserProfileById(row.sender_id);
+        const newMsg: Message = {
+          id: row.id,
+          conversationId: row.conversation_id,
+          senderId: row.sender_id,
+          senderUsername: sender?.username || 'user',
+          senderDisplayName: sender?.displayName || sender?.username || 'User',
+          senderAvatarUrl: sender?.avatarUrl,
+          content: row.content,
+          type: (row.type as MessageType) || 'text',
+          mediaUrl: row.media_url || undefined,
+          duration: row.duration ? Number(row.duration) : undefined,
+          replyTo: undefined,
+          reactions: [],
+          createdAt: row.created_at,
+          isDeleted: row.is_deleted || false,
+          status: 'sent',
+        };
+
+        if (row.reply_to_id) {
+          const { data: replyMsg } = await supabase
+            .from('messages')
+            .select('id, sender_id, content, type')
+            .eq('id', row.reply_to_id)
+            .maybeSingle();
+
+          if (replyMsg) {
+            const replySender = await getUserProfileById(replyMsg.sender_id);
+            newMsg.replyTo = {
+              id: replyMsg.id,
+              senderId: replyMsg.sender_id,
+              senderUsername: replySender?.username || 'user',
+              senderDisplayName: replySender?.displayName || replySender?.username || 'User',
+              content: replyMsg.content,
+              type: (replyMsg.type as MessageType) || 'text',
+            };
+          }
+        }
+
+        // Cache locally
+        const messagesMap = getAllStoredMessages();
+        const currentList = messagesMap[row.conversation_id] || [];
+        if (!currentList.some((m) => m.id === row.id)) {
+          messagesMap[row.conversation_id] = [...currentList, newMsg];
+          saveStoredMessages(messagesMap);
+        }
+
+        broadcastEvent({
+          type: 'NEW_MESSAGE',
+          conversationId: row.conversation_id,
+          senderId: row.sender_id,
+          senderUsername: sender?.username,
+          message: newMsg,
+        });
+      }
+    );
+
+    // 2. Listen for message edits and soft deletes
+    supabaseChannelInstance.on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'messages' },
+      async (payload) => {
+        const row = payload.new as {
+          id: string;
+          conversation_id: string;
+          sender_id: string;
+          content: string;
+          type?: string;
+          media_url?: string;
+          duration?: number;
+          is_deleted?: boolean;
+          edited_at?: string;
+          created_at: string;
+        };
+
+        if (!row || !row.id) return;
+
+        const messagesMap = getAllStoredMessages();
+        const list = messagesMap[row.conversation_id] || [];
+        const existing = list.find((m) => m.id === row.id);
+        const updatedMsg: Message = {
+          ...(existing || {
+            id: row.id,
+            conversationId: row.conversation_id,
+            senderId: row.sender_id,
+            senderUsername: 'user',
+            senderDisplayName: 'User',
+            reactions: [],
+            createdAt: row.created_at,
+            type: (row.type as MessageType) || 'text',
+          }),
+          content: row.content,
+          isDeleted: row.is_deleted || false,
+          editedAt: row.edited_at,
+          mediaUrl: row.media_url || undefined,
+        };
+
+        messagesMap[row.conversation_id] = list.map((m) => (m.id === row.id ? updatedMsg : m));
+        saveStoredMessages(messagesMap);
+
+        if (row.is_deleted) {
+          broadcastEvent({
+            type: 'DELETE_MESSAGE',
+            conversationId: row.conversation_id,
+            senderId: row.sender_id,
+            message: updatedMsg,
+          });
+        } else {
+          broadcastEvent({
+            type: 'EDIT_MESSAGE',
+            conversationId: row.conversation_id,
+            senderId: row.sender_id,
+            message: updatedMsg,
+          });
+        }
+      }
+    );
+
+    // 3. Listen for reactions across devices
+    supabaseChannelInstance.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'message_reactions' },
+      async (payload) => {
+        const row = (payload.new || payload.old) as { message_id?: string };
+        if (!row?.message_id) return;
+
+        const { data: reactionsData } = await supabase
+          .from('message_reactions')
+          .select('id, message_id, profile_id, emoji, created_at, profiles(username)')
+          .eq('message_id', row.message_id);
+
+        if (reactionsData) {
+          const reactions: MessageReaction[] = reactionsData.map((r: any) => ({
+            id: r.id,
+            messageId: r.message_id,
+            userId: r.profile_id,
+            username: r.profiles?.username || '',
+            emoji: r.emoji,
+            createdAt: r.created_at,
+          }));
+
+          const messagesMap = getAllStoredMessages();
+          for (const convId of Object.keys(messagesMap)) {
+            const target = messagesMap[convId].find((m) => m.id === row.message_id);
+            if (target) {
+              target.reactions = reactions;
+              saveStoredMessages(messagesMap);
+              broadcastEvent({
+                type: 'REACTION_UPDATE',
+                conversationId: convId,
+                message: target,
+              });
+              break;
+            }
+          }
+        }
+      }
+    );
+
+    // 4. Listen for typing events across devices
+    supabaseChannelInstance.on('broadcast', { event: 'typing' }, ({ payload }) => {
+      if (!payload) return;
+      listeners.forEach((l) => {
+        try {
+          l({
+            type: 'TYPING',
+            conversationId: payload.conversationId,
+            senderId: payload.senderId,
+            senderUsername: payload.senderUsername,
+            isTyping: payload.isTyping,
+          });
+        } catch (e) {
+          console.error('Error in typing broadcast handler:', e);
+        }
+      });
+    });
+
+    supabaseChannelInstance.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('MessMe Realtime: connected to Supabase global channel');
+      } else if (err) {
+        console.warn('MessMe Realtime subscription issue:', err);
+      }
+    });
+  } catch (err) {
+    console.warn('Failed to start Supabase realtime:', err);
+    isRealtimeSubscribed = false;
+  }
+}
+
+// -------------------------------------------------------------
 // LOCAL STORAGE STORE HELPERS
 // -------------------------------------------------------------
 
@@ -99,14 +332,7 @@ function getAllStoredUsers(): UserProfile[] {
   try {
     const raw = localStorage.getItem(STORAGE_USERS);
     if (!raw) return [];
-    const users: UserProfile[] = JSON.parse(raw);
-    const filtered = users.filter(
-      u => !LEGACY_MOCK_USER_IDS.has(u.id) && !LEGACY_MOCK_USERNAMES.has(u.username)
-    );
-    if (filtered.length !== users.length) {
-      saveStoredUsers(filtered);
-    }
-    return filtered;
+    return JSON.parse(raw);
   } catch {
     return [];
   }
@@ -114,7 +340,7 @@ function getAllStoredUsers(): UserProfile[] {
 
 export function getStoredUserById(userId: string): UserProfile | null {
   const users = getAllStoredUsers();
-  return users.find(u => u.id === userId) || null;
+  return users.find((u) => u.id === userId) || null;
 }
 
 function saveStoredUsers(users: UserProfile[]) {
@@ -129,16 +355,7 @@ function getAllStoredConversations(currentUserId: string): Conversation[] {
   try {
     const raw = localStorage.getItem(`${STORAGE_CONVERSATIONS}_${currentUserId}`);
     if (!raw) return [];
-    const convs: Conversation[] = JSON.parse(raw);
-    const filtered = convs.filter(
-      c =>
-        !LEGACY_MOCK_USER_IDS.has(c.otherParticipant.userId) &&
-        !LEGACY_MOCK_USERNAMES.has(c.otherParticipant.username)
-    );
-    if (filtered.length !== convs.length) {
-      saveStoredConversations(currentUserId, filtered);
-    }
-    return filtered;
+    return JSON.parse(raw);
   } catch {
     return [];
   }
@@ -155,7 +372,8 @@ function saveStoredConversations(currentUserId: string, convs: Conversation[]) {
 function getAllStoredMessages(): Record<string, Message[]> {
   try {
     const raw = localStorage.getItem(STORAGE_MESSAGES);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch {
     return {};
   }
@@ -169,20 +387,19 @@ function saveStoredMessages(messagesMap: Record<string, Message[]>) {
   }
 }
 
-const STORAGE_BLOCKED_USERS = 'messme_blocked_users';
-
-export function getStoredBlockedUserIds(userId: string): string[] {
+export function getStoredBlockedUserIds(currentUserId: string): string[] {
   try {
-    const raw = localStorage.getItem(`${STORAGE_BLOCKED_USERS}_${userId}`);
-    return raw ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(`${STORAGE_BLOCKED}_${currentUserId}`);
+    if (!raw) return [];
+    return JSON.parse(raw);
   } catch {
     return [];
   }
 }
 
-export function saveStoredBlockedUserIds(userId: string, blockedIds: string[]) {
+function saveStoredBlockedUserIds(currentUserId: string, ids: string[]) {
   try {
-    localStorage.setItem(`${STORAGE_BLOCKED_USERS}_${userId}`, JSON.stringify(blockedIds));
+    localStorage.setItem(`${STORAGE_BLOCKED}_${currentUserId}`, JSON.stringify(ids));
   } catch (err) {
     console.error('Failed to save blocked users:', err);
   }
@@ -219,14 +436,90 @@ export async function unblockUserInStorage(currentUserId: string, targetUserId: 
 // USER IDENTITY & AVAILABILITY
 // -------------------------------------------------------------
 
+export async function getUserProfileById(userId: string): Promise<UserProfile | null> {
+  if (userProfileCache.has(userId)) {
+    return userProfileCache.get(userId)!;
+  }
+  const local = getStoredUserById(userId);
+  if (local) {
+    userProfileCache.set(userId, local);
+    return local;
+  }
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (data) {
+        const profile: UserProfile = {
+          id: data.id,
+          username: data.username,
+          displayName: data.display_name || data.username,
+          avatarUrl: data.avatar_url || undefined,
+          about: data.about || undefined,
+          createdAt: data.created_at,
+          lastSeen: data.last_seen,
+        };
+        userProfileCache.set(userId, profile);
+        return profile;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch profile by id from Supabase:', err);
+    }
+  }
+
+  return null;
+}
+
+export async function getUserProfileByUsername(username: string): Promise<UserProfile | null> {
+  const normalized = normalizeUsername(username);
+  if (!normalized) return null;
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .ilike('username', normalized)
+        .maybeSingle();
+
+      if (data) {
+        const profile: UserProfile = {
+          id: data.id,
+          username: data.username,
+          displayName: data.display_name || data.username,
+          avatarUrl: data.avatar_url || undefined,
+          about: data.about || undefined,
+          createdAt: data.created_at,
+          lastSeen: data.last_seen,
+        };
+        userProfileCache.set(profile.id, profile);
+        return profile;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch profile by username from Supabase:', err);
+    }
+  }
+
+  const localUsers = getAllStoredUsers();
+  return localUsers.find((u) => normalizeUsername(u.username) === normalized) || null;
+}
+
 /**
  * Check if a username is already taken
  */
-export async function checkUsernameAvailability(username: string): Promise<{ available: boolean; existingUser?: UserProfile }> {
+export async function checkUsernameAvailability(
+  username: string
+): Promise<{ available: boolean; existingUser?: UserProfile }> {
   const normalized = normalizeUsername(username);
   if (!normalized) return { available: false };
 
-  // If Supabase is configured, check database
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -237,17 +530,16 @@ export async function checkUsernameAvailability(username: string): Promise<{ ava
         .maybeSingle();
 
       if (!error && data) {
-        return {
-          available: false,
-          existingUser: {
-            id: data.id,
-            username: data.username,
-            displayName: data.display_name,
-            avatarUrl: data.avatar_url,
-            about: data.about,
-            createdAt: data.created_at,
-          },
+        const existing: UserProfile = {
+          id: data.id,
+          username: data.username,
+          displayName: data.display_name || data.username,
+          avatarUrl: data.avatar_url || undefined,
+          about: data.about || undefined,
+          createdAt: data.created_at,
         };
+        userProfileCache.set(data.id, existing);
+        return { available: false, existingUser: existing };
       }
       return { available: true };
     } catch (err) {
@@ -255,14 +547,14 @@ export async function checkUsernameAvailability(username: string): Promise<{ ava
     }
   }
 
-  // Local check
+  // Local fallback
   const users = getAllStoredUsers();
-  const existing = users.find(u => normalizeUsername(u.username) === normalized);
+  const existing = users.find((u) => normalizeUsername(u.username) === normalized);
   return { available: !existing, existingUser: existing };
 }
 
 /**
- * Register new user profile with globally unique username
+ * Register new user profile with globally unique username, or return existing
  */
 export async function registerUserProfile(
   username: string,
@@ -274,18 +566,30 @@ export async function registerUserProfile(
   const internalId = generateUUID();
   const finalDisplayName = displayName?.trim() || username;
 
-  const newProfile: UserProfile = {
-    id: internalId,
-    username: normalized,
-    displayName: finalDisplayName,
-    avatarUrl,
-    createdAt: new Date().toISOString(),
-    isOnline: true,
-  };
-
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
+      // Check if user already exists
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('*')
+        .ilike('username', normalized)
+        .maybeSingle();
+
+      if (existing) {
+        const profile: UserProfile = {
+          id: existing.id,
+          username: existing.username,
+          displayName: existing.display_name || existing.username,
+          avatarUrl: existing.avatar_url || avatarUrl || undefined,
+          about: existing.about || undefined,
+          createdAt: existing.created_at,
+        };
+        userProfileCache.set(profile.id, profile);
+        return profile;
+      }
+
+      // Insert new profile
       const { data, error } = await supabase
         .from('profiles')
         .insert({
@@ -293,7 +597,7 @@ export async function registerUserProfile(
           username: normalized,
           display_name: finalDisplayName,
           avatar_url: avatarUrl || null,
-          created_at: newProfile.createdAt,
+          created_at: new Date().toISOString(),
         })
         .select()
         .single();
@@ -303,31 +607,51 @@ export async function registerUserProfile(
       }
 
       // Store hashed session token
-      await supabase.from('identity_secrets').insert({
-        profile_id: internalId,
-        session_token_hash: sessionToken,
-      });
+      try {
+        await supabase.from('identity_secrets').insert({
+          profile_id: internalId,
+          session_token_hash: sessionToken,
+        });
+      } catch (secErr) {
+        console.warn('Identity secrets record skipped:', secErr);
+      }
 
-      return {
+      const newProfile: UserProfile = {
         id: data.id,
         username: data.username,
-        displayName: data.display_name,
+        displayName: data.display_name || data.username,
         avatarUrl: data.avatar_url || avatarUrl,
         createdAt: data.created_at,
       };
+
+      userProfileCache.set(newProfile.id, newProfile);
+
+      // Save in local registry as cache
+      const users = getAllStoredUsers();
+      if (!users.some((u) => u.id === newProfile.id)) {
+        users.push(newProfile);
+        saveStoredUsers(users);
+      }
+
+      return newProfile;
     } catch (err: unknown) {
-      console.warn('Supabase registration fallback to local:', err);
+      console.warn('Supabase registration error, falling back to local:', err);
     }
   }
 
-  // Save in local registry
+  // Local fallback
+  const newProfile: UserProfile = {
+    id: internalId,
+    username: normalized,
+    displayName: finalDisplayName,
+    avatarUrl,
+    createdAt: new Date().toISOString(),
+    isOnline: true,
+  };
+
   const users = getAllStoredUsers();
   users.push(newProfile);
   saveStoredUsers(users);
-
-  // Initialize clean conversation store for this user (no mock/demo chats)
-  saveStoredConversations(newProfile.id, []);
-
   return newProfile;
 }
 
@@ -335,6 +659,8 @@ export async function registerUserProfile(
  * Update user profile across stores and Supabase
  */
 export async function updateUserProfileInStorage(updated: UserProfile): Promise<void> {
+  userProfileCache.set(updated.id, updated);
+
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -344,6 +670,7 @@ export async function updateUserProfileInStorage(updated: UserProfile): Promise<
           display_name: updated.displayName,
           avatar_url: updated.avatarUrl || null,
           about: updated.about || null,
+          last_seen: new Date().toISOString(),
         })
         .eq('id', updated.id);
     } catch (err) {
@@ -352,79 +679,12 @@ export async function updateUserProfileInStorage(updated: UserProfile): Promise<
   }
 
   const users = getAllStoredUsers();
-  const idx = users.findIndex(u => u.id === updated.id);
+  const idx = users.findIndex((u) => u.id === updated.id);
   if (idx >= 0) {
     users[idx] = { ...users[idx], ...updated };
     saveStoredUsers(users);
   }
 
-  // Update in all conversation stores for all users in localStorage
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(STORAGE_CONVERSATIONS)) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const list: Conversation[] = JSON.parse(raw);
-          let changed = false;
-          const updatedList = list.map(c => {
-            const isOther = c.otherParticipant.userId === updated.id;
-            const hasParticipant = c.participants.some(p => p.userId === updated.id);
-            if (!isOther && !hasParticipant) return c;
-            changed = true;
-            return {
-              ...c,
-              otherParticipant: isOther
-                ? {
-                    ...c.otherParticipant,
-                    displayName: updated.displayName,
-                    avatarUrl: updated.avatarUrl,
-                    about: updated.about,
-                  }
-                : c.otherParticipant,
-              participants: c.participants.map(p =>
-                p.userId === updated.id
-                  ? {
-                      ...p,
-                      displayName: updated.displayName,
-                      avatarUrl: updated.avatarUrl,
-                      about: updated.about,
-                    }
-                  : p
-              ),
-            };
-          });
-          if (changed) {
-            localStorage.setItem(key, JSON.stringify(updatedList));
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to sync conversation stores for profile update:', err);
-  }
-
-  // Update stored historical messages sent by this user
-  const allMsgs = getAllStoredMessages();
-  let msgsChanged = false;
-  Object.keys(allMsgs).forEach(convId => {
-    allMsgs[convId] = allMsgs[convId].map(m => {
-      if (m.senderId === updated.id) {
-        msgsChanged = true;
-        return {
-          ...m,
-          senderDisplayName: updated.displayName,
-          senderAvatarUrl: updated.avatarUrl,
-        };
-      }
-      return m;
-    });
-  });
-  if (msgsChanged) {
-    saveStoredMessages(allMsgs);
-  }
-
-  // Broadcast real-time profile update to all other open tabs
   broadcastEvent({
     type: 'PROFILE_UPDATE',
     senderId: updated.id,
@@ -434,7 +694,7 @@ export async function updateUserProfileInStorage(updated: UserProfile): Promise<
 }
 
 /**
- * Search users by username query
+ * Search users by username query in Supabase (global discovery)
  */
 export async function searchUsersByUsername(query: string, currentUserId: string): Promise<UserProfile[]> {
   const normalized = normalizeUsername(query);
@@ -446,7 +706,7 @@ export async function searchUsersByUsername(query: string, currentUserId: string
         .from('profiles')
         .select('*')
         .neq('id', currentUserId)
-        .limit(15);
+        .limit(20);
 
       if (normalized) {
         req = req.ilike('username', `%${normalized}%`);
@@ -454,14 +714,18 @@ export async function searchUsersByUsername(query: string, currentUserId: string
 
       const { data } = await req;
       if (data) {
-        return data.map(d => ({
-          id: d.id,
-          username: d.username,
-          displayName: d.display_name,
-          avatarUrl: d.avatar_url,
-          about: d.about,
-          createdAt: d.created_at,
-        }));
+        return data.map((d) => {
+          const u: UserProfile = {
+            id: d.id,
+            username: d.username,
+            displayName: d.display_name || d.username,
+            avatarUrl: d.avatar_url || undefined,
+            about: d.about || undefined,
+            createdAt: d.created_at,
+          };
+          userProfileCache.set(u.id, u);
+          return u;
+        });
       }
     } catch (err) {
       console.warn('Supabase search fallback to local:', err);
@@ -470,13 +734,14 @@ export async function searchUsersByUsername(query: string, currentUserId: string
 
   const users = getAllStoredUsers();
   if (!normalized) {
-    return users.filter(u => u.id !== currentUserId);
+    return users.filter((u) => u.id !== currentUserId);
   }
 
-  return users.filter(u =>
-    u.id !== currentUserId &&
-    (normalizeUsername(u.username).includes(normalized) ||
-     (u.displayName && u.displayName.toLowerCase().includes(normalized)))
+  return users.filter(
+    (u) =>
+      u.id !== currentUserId &&
+      (normalizeUsername(u.username).includes(normalized) ||
+        (u.displayName && u.displayName.toLowerCase().includes(normalized)))
   );
 }
 
@@ -485,10 +750,12 @@ export async function searchUsersByUsername(query: string, currentUserId: string
 // -------------------------------------------------------------
 
 export async function fetchUserConversations(currentUserId: string): Promise<Conversation[]> {
+  ensureSupabaseRealtime();
   const supabase = getSupabaseClient();
+
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      const { data: partRows, error: pErr } = await supabase
         .from('conversation_participants')
         .select(`
           conversation_id,
@@ -497,65 +764,249 @@ export async function fetchUserConversations(currentUserId: string): Promise<Con
           conversations (
             id,
             created_at,
-            updated_at
+            updated_at,
+            last_message_at
           )
         `)
         .eq('profile_id', currentUserId);
 
-      if (!error && data) {
-        // Fallback gracefully if schema is partially initialized
+      if (!pErr && partRows && partRows.length > 0) {
+        const convIds = partRows.map((r: any) => r.conversation_id);
+
+        // Get participants in these conversations
+        const { data: allParticipants } = await supabase
+          .from('conversation_participants')
+          .select(`
+            conversation_id,
+            profile_id,
+            profiles (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              about,
+              last_seen
+            )
+          `)
+          .in('conversation_id', convIds);
+
+        // Get recent messages for previews
+        const { data: recentMsgs } = await supabase
+          .from('messages')
+          .select('*, profiles(id, username, display_name, avatar_url)')
+          .in('conversation_id', convIds)
+          .order('created_at', { ascending: false });
+
+        const latestMsgMap = new Map<string, Message>();
+        if (recentMsgs) {
+          for (const m of recentMsgs) {
+            if (!latestMsgMap.has(m.conversation_id)) {
+              latestMsgMap.set(m.conversation_id, {
+                id: m.id,
+                conversationId: m.conversation_id,
+                senderId: m.sender_id,
+                senderUsername: m.profiles?.username || 'user',
+                senderDisplayName: m.profiles?.display_name || m.profiles?.username || 'User',
+                senderAvatarUrl: m.profiles?.avatar_url || undefined,
+                content: m.content,
+                type: m.type as MessageType,
+                mediaUrl: m.media_url || undefined,
+                duration: m.duration ? Number(m.duration) : undefined,
+                reactions: [],
+                createdAt: m.created_at,
+                isDeleted: m.is_deleted || false,
+                status: 'sent',
+              });
+            }
+          }
+        }
+
+        const partMap = new Map<string, any[]>();
+        if (allParticipants) {
+          for (const ap of allParticipants) {
+            const list = partMap.get(ap.conversation_id) || [];
+            list.push(ap);
+            partMap.set(ap.conversation_id, list);
+          }
+        }
+
+        const convs: Conversation[] = partRows.map((pr: any) => {
+          const convData = pr.conversations || {};
+          const parts = partMap.get(pr.conversation_id) || [];
+          const otherPartRow = parts.find((p: any) => p.profile_id !== currentUserId) || parts[0];
+          const otherProfile = otherPartRow?.profiles || {};
+
+          const participantsList = parts.map((p: any) => ({
+            userId: p.profile_id,
+            username: p.profiles?.username || 'user',
+            displayName: p.profiles?.display_name || p.profiles?.username || 'User',
+            avatarUrl: p.profiles?.avatar_url,
+            about: p.profiles?.about,
+            isOnline: true,
+          }));
+
+          const otherParticipant = {
+            userId: otherPartRow?.profile_id || '',
+            username: otherProfile.username || 'user',
+            displayName: otherProfile.display_name || otherProfile.username || 'User',
+            avatarUrl: otherProfile.avatar_url,
+            about: otherProfile.about,
+            isOnline: true,
+          };
+
+          const lastMsg = latestMsgMap.get(pr.conversation_id);
+
+          return {
+            id: pr.conversation_id,
+            participants: participantsList,
+            otherParticipant,
+            lastMessage: lastMsg,
+            unreadCount: 0,
+            isPinned: Boolean(pr.is_pinned),
+            isMuted: Boolean(pr.is_muted),
+            createdAt: convData.created_at || new Date().toISOString(),
+            updatedAt:
+              lastMsg?.createdAt ||
+              convData.updated_at ||
+              convData.created_at ||
+              new Date().toISOString(),
+          };
+        });
+
+        convs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        saveStoredConversations(currentUserId, convs);
+        return convs;
       }
     } catch (err) {
       console.warn('Supabase fetch conversations fallback to local:', err);
     }
   }
 
-  const rawConvs = getAllStoredConversations(currentUserId);
-  const allUsers = getAllStoredUsers();
-  const userMap = new Map(allUsers.map(u => [u.id, u]));
-
-  // Hydrate conversations with latest profile changes
-  return rawConvs.map(c => {
-    const freshOther = userMap.get(c.otherParticipant.userId);
-    const otherParticipant = freshOther
-      ? {
-          ...c.otherParticipant,
-          displayName: freshOther.displayName || c.otherParticipant.displayName,
-          avatarUrl: freshOther.avatarUrl !== undefined ? freshOther.avatarUrl : c.otherParticipant.avatarUrl,
-          about: freshOther.about !== undefined ? freshOther.about : c.otherParticipant.about,
-        }
-      : c.otherParticipant;
-
-    const participants = c.participants.map(p => {
-      const freshP = userMap.get(p.userId);
-      return freshP
-        ? {
-            ...p,
-            displayName: freshP.displayName || p.displayName,
-            avatarUrl: freshP.avatarUrl !== undefined ? freshP.avatarUrl : p.avatarUrl,
-            about: freshP.about !== undefined ? freshP.about : p.about,
-          }
-        : p;
-    });
-
-    return {
-      ...c,
-      otherParticipant,
-      participants,
-    };
-  });
+  // Local fallback
+  return getAllStoredConversations(currentUserId);
 }
 
-export async function getOrCreateConversation(currentUser: UserProfile, targetUser: UserProfile): Promise<Conversation> {
-  const conversations = getAllStoredConversations(currentUser.id);
+export async function getOrCreateConversation(
+  currentUser: UserProfile,
+  targetUser: UserProfile
+): Promise<Conversation> {
+  ensureSupabaseRealtime();
+  const supabase = getSupabaseClient();
 
-  // Check if conversation already exists
-  const existing = conversations.find(c => c.otherParticipant.userId === targetUser.id);
-  if (existing) {
-    return existing;
+  if (supabase) {
+    try {
+      // 1. Check if conversation already exists between both users in Supabase
+      const { data: myConvs } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('profile_id', currentUser.id);
+
+      if (myConvs && myConvs.length > 0) {
+        const convIds = myConvs.map((c) => c.conversation_id);
+        const { data: shared } = await supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .in('conversation_id', convIds)
+          .eq('profile_id', targetUser.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (shared?.conversation_id) {
+          const convId = shared.conversation_id;
+          const now = new Date().toISOString();
+          const conv: Conversation = {
+            id: convId,
+            participants: [
+              {
+                userId: currentUser.id,
+                username: currentUser.username,
+                displayName: currentUser.displayName,
+                avatarUrl: currentUser.avatarUrl,
+              },
+              {
+                userId: targetUser.id,
+                username: targetUser.username,
+                displayName: targetUser.displayName,
+                avatarUrl: targetUser.avatarUrl,
+                isOnline: true,
+              },
+            ],
+            otherParticipant: {
+              userId: targetUser.id,
+              username: targetUser.username,
+              displayName: targetUser.displayName,
+              avatarUrl: targetUser.avatarUrl,
+              isOnline: true,
+            },
+            unreadCount: 0,
+            isPinned: false,
+            isMuted: false,
+            createdAt: now,
+            updatedAt: now,
+          };
+          return conv;
+        }
+      }
+
+      // 2. Create new conversation in Supabase
+      const { data: newConvRow, error: convErr } = await supabase
+        .from('conversations')
+        .insert({})
+        .select()
+        .single();
+
+      if (newConvRow && !convErr) {
+        await supabase.from('conversation_participants').insert([
+          { conversation_id: newConvRow.id, profile_id: currentUser.id },
+          { conversation_id: newConvRow.id, profile_id: targetUser.id },
+        ]);
+
+        const conv: Conversation = {
+          id: newConvRow.id,
+          participants: [
+            {
+              userId: currentUser.id,
+              username: currentUser.username,
+              displayName: currentUser.displayName,
+              avatarUrl: currentUser.avatarUrl,
+            },
+            {
+              userId: targetUser.id,
+              username: targetUser.username,
+              displayName: targetUser.displayName,
+              avatarUrl: targetUser.avatarUrl,
+              isOnline: true,
+            },
+          ],
+          otherParticipant: {
+            userId: targetUser.id,
+            username: targetUser.username,
+            displayName: targetUser.displayName,
+            avatarUrl: targetUser.avatarUrl,
+            isOnline: true,
+          },
+          unreadCount: 0,
+          isPinned: false,
+          isMuted: false,
+          createdAt: newConvRow.created_at,
+          updatedAt: newConvRow.updated_at,
+        };
+
+        const localConvs = getAllStoredConversations(currentUser.id);
+        saveStoredConversations(currentUser.id, [conv, ...localConvs.filter((c) => c.id !== conv.id)]);
+        return conv;
+      }
+    } catch (err) {
+      console.warn('Supabase getOrCreateConversation error, falling back:', err);
+    }
   }
 
-  const newConvId = `conv_${currentUser.id}_${targetUser.id}`;
+  // Local fallback
+  const conversations = getAllStoredConversations(currentUser.id);
+  const existing = conversations.find((c) => c.otherParticipant.userId === targetUser.id);
+  if (existing) return existing;
+
+  const newConvId = generateUUID();
   const now = new Date().toISOString();
 
   const newConv: Conversation = {
@@ -591,79 +1042,53 @@ export async function getOrCreateConversation(currentUser: UserProfile, targetUs
 
   conversations.unshift(newConv);
   saveStoredConversations(currentUser.id, conversations);
-
-  // Also create mirrored conversation for target user in store
-  const targetConvs = getAllStoredConversations(targetUser.id);
-  const mirroredConv: Conversation = {
-    ...newConv,
-    otherParticipant: {
-      userId: currentUser.id,
-      username: currentUser.username,
-      displayName: currentUser.displayName,
-      avatarUrl: currentUser.avatarUrl,
-      isOnline: true,
-    },
-  };
-  targetConvs.unshift(mirroredConv);
-  saveStoredConversations(targetUser.id, targetConvs);
-
   return newConv;
 }
 
 export async function togglePinConversation(currentUserId: string, conversationId: string): Promise<Conversation[]> {
   const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find(c => c.id === conversationId);
+  const target = convs.find((c) => c.id === conversationId);
   if (target) {
     target.isPinned = !target.isPinned;
     saveStoredConversations(currentUserId, convs);
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase
+          .from('conversation_participants')
+          .update({ is_pinned: target.isPinned })
+          .eq('conversation_id', conversationId)
+          .eq('profile_id', currentUserId);
+      } catch (e) {
+        console.warn('Error updating pin status in Supabase:', e);
+      }
+    }
   }
   return convs;
 }
 
 export async function toggleMuteConversation(currentUserId: string, conversationId: string): Promise<Conversation[]> {
   const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find(c => c.id === conversationId);
+  const target = convs.find((c) => c.id === conversationId);
   if (target) {
     target.isMuted = !target.isMuted;
     saveStoredConversations(currentUserId, convs);
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase
+          .from('conversation_participants')
+          .update({ is_muted: target.isMuted })
+          .eq('conversation_id', conversationId)
+          .eq('profile_id', currentUserId);
+      } catch (e) {
+        console.warn('Error updating mute status in Supabase:', e);
+      }
+    }
   }
   return convs;
-}
-
-export async function setConversationDisappearingDuration(
-  currentUserId: string,
-  conversationId: string,
-  duration: DisappearingDuration
-): Promise<Conversation | null> {
-  const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find(c => c.id === conversationId);
-  if (!target) return null;
-
-  const now = new Date().toISOString();
-  target.disappearingDuration = duration;
-  target.updatedAt = now;
-  saveStoredConversations(currentUserId, convs);
-
-  // Mirrored update for other participant
-  const otherUserId = target.otherParticipant.userId;
-  const otherConvs = getAllStoredConversations(otherUserId);
-  const mirrored = otherConvs.find(c => c.id === conversationId);
-  if (mirrored) {
-    mirrored.disappearingDuration = duration;
-    mirrored.updatedAt = now;
-    saveStoredConversations(otherUserId, otherConvs);
-  }
-
-  // Purge any messages exceeding the newly set duration immediately to reclaim storage
-  await purgeExpiredMessages(conversationId);
-
-  broadcastEvent({
-    type: 'DISAPPEARING_DURATION_UPDATE',
-    conversationId,
-    disappearingDuration: duration,
-  });
-
-  return target;
 }
 
 export async function clearConversationMessages(currentUserId: string, conversationId: string): Promise<void> {
@@ -671,8 +1096,17 @@ export async function clearConversationMessages(currentUserId: string, conversat
   messagesMap[conversationId] = [];
   saveStoredMessages(messagesMap);
 
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('messages').delete().eq('conversation_id', conversationId);
+    } catch (e) {
+      console.warn('Failed to clear Supabase messages:', e);
+    }
+  }
+
   const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find(c => c.id === conversationId);
+  const target = convs.find((c) => c.id === conversationId);
   if (target) {
     target.lastMessage = undefined;
     target.unreadCount = 0;
@@ -680,97 +1114,93 @@ export async function clearConversationMessages(currentUserId: string, conversat
   }
 }
 
-// -------------------------------------------------------------
-// MESSAGES & DISAPPEARING / EPHEMERAL PURGE ENGINE
-// -------------------------------------------------------------
-
-/**
- * Purge expired messages from storage to conserve device/browser space
- */
-export async function purgeExpiredMessages(targetConversationId?: string): Promise<{ purgedCount: number; remainingMessages: Message[] }> {
-  const messagesMap = getAllStoredMessages();
-  const now = Date.now();
-  let totalPurged = 0;
-  let remainingForTarget: Message[] = [];
-
-  const conversationIds = targetConversationId ? [targetConversationId] : Object.keys(messagesMap);
-  const allUsers = getAllStoredUsers();
-
-  for (const cId of conversationIds) {
-    const list = messagesMap[cId];
-    if (!list || list.length === 0) continue;
-
-    // Detect disappearing duration set for this conversation
-    let duration: DisappearingDuration = 'off';
-    for (const u of allUsers) {
-      const convs = getAllStoredConversations(u.id);
-      const match = convs.find(c => c.id === cId);
-      if (match?.disappearingDuration) {
-        duration = match.disappearingDuration;
-        break;
-      }
-    }
-
-    const durationMs =
-      duration === '24h'
-        ? 24 * 60 * 60 * 1000
-        : duration === '48h'
-        ? 48 * 60 * 60 * 1000
-        : null;
-
-    const unexpired = list.filter((m) => {
-      // 1. If explicit expiration timestamp exists
-      if (m.expiresAt) {
-        return new Date(m.expiresAt).getTime() > now;
-      }
-      // 2. If conversation auto-delete rule is active
-      if (durationMs) {
-        const msgTime = new Date(m.createdAt).getTime();
-        return now - msgTime <= durationMs;
-      }
-      return true;
-    });
-
-    const purged = list.length - unexpired.length;
-    if (purged > 0) {
-      totalPurged += purged;
-      messagesMap[cId] = unexpired;
-
-      // Update lastMessage preview across participants
-      const latestMsg = unexpired.length > 0 ? unexpired[unexpired.length - 1] : undefined;
-      for (const u of allUsers) {
-        const userConvs = getAllStoredConversations(u.id);
-        const userTarget = userConvs.find(c => c.id === cId);
-        if (userTarget) {
-          userTarget.lastMessage = latestMsg;
-          saveStoredConversations(u.id, userConvs);
-        }
-      }
-
-      broadcastEvent({
-        type: 'MESSAGES_PURGED',
-        conversationId: cId,
-      });
-    }
-
-    if (cId === targetConversationId) {
-      remainingForTarget = unexpired;
-    }
-  }
-
-  if (totalPurged > 0) {
-    saveStoredMessages(messagesMap);
-  }
-
-  return {
-    purgedCount: totalPurged,
-    remainingMessages: remainingForTarget,
-  };
-}
-
 export async function fetchMessages(conversationId: string): Promise<Message[]> {
-  // Purge expired items before returning
-  await purgeExpiredMessages(conversationId);
+  ensureSupabaseRealtime();
+  const supabase = getSupabaseClient();
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, profiles(id, username, display_name, avatar_url)')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        const messageIds = data.map((m: any) => m.id);
+        const reactionsMap: Record<string, MessageReaction[]> = {};
+
+        if (messageIds.length > 0) {
+          const { data: rData } = await supabase
+            .from('message_reactions')
+            .select('id, message_id, profile_id, emoji, created_at, profiles(username)')
+            .in('message_id', messageIds);
+
+          if (rData) {
+            for (const r of rData) {
+              const list = reactionsMap[r.message_id] || [];
+              list.push({
+                id: r.id,
+                messageId: r.message_id,
+                userId: r.profile_id,
+                username: (r as any).profiles?.username || '',
+                emoji: r.emoji,
+                createdAt: r.created_at,
+              });
+              reactionsMap[r.message_id] = list;
+            }
+          }
+        }
+
+        const messages: Message[] = data.map((m: any) => {
+          let replyRef: Message['replyTo'] = undefined;
+          if (m.reply_to_id) {
+            const found = data.find((x: any) => x.id === m.reply_to_id);
+            if (found) {
+              replyRef = {
+                id: found.id,
+                senderId: found.sender_id,
+                senderUsername: found.profiles?.username || 'user',
+                senderDisplayName: found.profiles?.display_name || found.profiles?.username || 'User',
+                content: found.content,
+                type: found.type as MessageType,
+              };
+            }
+          }
+
+          return {
+            id: m.id,
+            conversationId: m.conversation_id,
+            senderId: m.sender_id,
+            senderUsername: m.profiles?.username || 'user',
+            senderDisplayName: m.profiles?.display_name || m.profiles?.username || 'User',
+            senderAvatarUrl: m.profiles?.avatar_url || undefined,
+            content: m.content,
+            type: m.type as MessageType,
+            mediaUrl: m.media_url || undefined,
+            imageUrl: m.type === 'text' && m.media_url?.startsWith('data:image') ? m.media_url : undefined,
+            duration: m.duration ? Number(m.duration) : undefined,
+            replyTo: replyRef,
+            reactions: reactionsMap[m.id] || [],
+            createdAt: m.created_at,
+            editedAt: m.edited_at || undefined,
+            isDeleted: m.is_deleted || false,
+            status: 'sent',
+          };
+        });
+
+        // Cache in local store
+        const messagesMap = getAllStoredMessages();
+        messagesMap[conversationId] = messages;
+        saveStoredMessages(messagesMap);
+        return messages;
+      }
+    } catch (err) {
+      console.warn('Supabase fetch messages fallback to local:', err);
+    }
+  }
+
+  // Local fallback
   const messagesMap = getAllStoredMessages();
   return messagesMap[conversationId] || [];
 }
@@ -788,29 +1218,17 @@ export async function sendMessage(
   const messageId = generateUUID();
   const now = new Date().toISOString();
 
-  // Check if conversation participant is blocked
+  // Check blocked status
+  const senderBlocked = getStoredBlockedUserIds(sender.id);
   const userConvs = getAllStoredConversations(sender.id);
-  const conv = userConvs.find(c => c.id === conversationId);
+  const conv = userConvs.find((c) => c.id === conversationId);
   const otherUserId = conv?.otherParticipant?.userId;
 
-  if (otherUserId) {
-    const senderBlocked = getStoredBlockedUserIds(sender.id);
-    if (senderBlocked.includes(otherUserId)) {
-      throw new Error('You have blocked this user. Unblock them to send messages.');
-    }
-    const recipientBlocked = getStoredBlockedUserIds(otherUserId);
-    if (recipientBlocked.includes(sender.id)) {
-      throw new Error('You cannot send messages to this user.');
-    }
+  if (otherUserId && senderBlocked.includes(otherUserId)) {
+    throw new Error('You have blocked this user. Unblock them to send messages.');
   }
 
-  let expiresAt: string | undefined = undefined;
-
-  if (conv?.disappearingDuration === '24h') {
-    expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  } else if (conv?.disappearingDuration === '48h') {
-    expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-  }
+  const finalMediaUrl = mediaUrl || imageUrl || undefined;
 
   const newMessage: Message = {
     id: messageId,
@@ -821,42 +1239,73 @@ export async function sendMessage(
     senderAvatarUrl: sender.avatarUrl,
     content,
     type,
-    mediaUrl,
+    mediaUrl: finalMediaUrl,
     imageUrl,
     duration,
     replyTo,
     reactions: [],
     createdAt: now,
-    expiresAt,
     status: 'sent',
   };
 
-  // Save to stored messages
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data: insertedMsg, error: insertError } = await supabase
+        .from('messages')
+        .insert({
+          id: messageId,
+          conversation_id: conversationId,
+          sender_id: sender.id,
+          content,
+          type: type === 'voice' ? 'voice' : 'text',
+          media_url: finalMediaUrl || null,
+          duration: duration || null,
+          reply_to_id: replyTo?.id || null,
+          is_deleted: false,
+          created_at: now,
+        })
+        .select('*, profiles(id, username, display_name, avatar_url)')
+        .single();
+
+      if (insertError) {
+        console.error('Supabase message insert error:', insertError);
+        throw new Error(insertError.message);
+      }
+
+      await supabase
+        .from('conversations')
+        .update({
+          last_message_at: now,
+          updated_at: now,
+        })
+        .eq('id', conversationId);
+
+      if (insertedMsg) {
+        newMessage.id = insertedMsg.id;
+        newMessage.createdAt = insertedMsg.created_at;
+      }
+    } catch (err: unknown) {
+      console.warn('Supabase send message error, continuing with local sync:', err);
+    }
+  }
+
+  // Save to stored messages cache
   const messagesMap = getAllStoredMessages();
   const currentList = messagesMap[conversationId] || [];
-  messagesMap[conversationId] = [...currentList, newMessage];
-  saveStoredMessages(messagesMap);
+  if (!currentList.some((m) => m.id === newMessage.id)) {
+    messagesMap[conversationId] = [...currentList, newMessage];
+    saveStoredMessages(messagesMap);
+  }
 
-  // Update conversation last message for sender
+  // Update conversation last message in local cache
   if (conv) {
     conv.lastMessage = newMessage;
     conv.updatedAt = now;
     saveStoredConversations(sender.id, userConvs);
   }
 
-  // Update conversation last message for recipient
-  if (conv?.otherParticipant?.userId) {
-    const recipientConvs = getAllStoredConversations(conv.otherParticipant.userId);
-    const recipientConv = recipientConvs.find(c => c.id === conversationId);
-    if (recipientConv) {
-      recipientConv.lastMessage = newMessage;
-      recipientConv.unreadCount = (recipientConv.unreadCount || 0) + 1;
-      recipientConv.updatedAt = now;
-      saveStoredConversations(conv.otherParticipant.userId, recipientConvs);
-    }
-  }
-
-  // Broadcast realtime event
+  // Broadcast event locally and cross-tab
   broadcastEvent({
     type: 'NEW_MESSAGE',
     conversationId,
@@ -874,21 +1323,73 @@ export async function toggleMessageReaction(
   user: UserProfile,
   emoji: string
 ): Promise<MessageReaction[]> {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data: existing } = await supabase
+        .from('message_reactions')
+        .select('id')
+        .eq('message_id', messageId)
+        .eq('profile_id', user.id)
+        .eq('emoji', emoji)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase.from('message_reactions').delete().eq('id', existing.id);
+      } else {
+        await supabase.from('message_reactions').insert({
+          id: generateUUID(),
+          message_id: messageId,
+          profile_id: user.id,
+          emoji,
+        });
+      }
+
+      const { data: refreshed } = await supabase
+        .from('message_reactions')
+        .select('id, message_id, profile_id, emoji, created_at, profiles(username)')
+        .eq('message_id', messageId);
+
+      if (refreshed) {
+        const reactions: MessageReaction[] = refreshed.map((r: any) => ({
+          id: r.id,
+          messageId: r.message_id,
+          userId: r.profile_id,
+          username: r.profiles?.username || user.username,
+          emoji: r.emoji,
+          createdAt: r.created_at,
+        }));
+
+        const messagesMap = getAllStoredMessages();
+        const list = messagesMap[conversationId] || [];
+        const message = list.find((m) => m.id === messageId);
+        if (message) {
+          message.reactions = reactions;
+          saveStoredMessages(messagesMap);
+          broadcastEvent({
+            type: 'REACTION_UPDATE',
+            conversationId,
+            senderId: user.id,
+            message,
+          });
+        }
+        return reactions;
+      }
+    } catch (err) {
+      console.warn('Supabase toggle reaction error:', err);
+    }
+  }
+
+  // Local fallback
   const messagesMap = getAllStoredMessages();
   const list = messagesMap[conversationId] || [];
-  const message = list.find(m => m.id === messageId);
+  const message = list.find((m) => m.id === messageId);
   if (!message) return [];
 
-  const existingIndex = message.reactions.findIndex(
-    r => r.userId === user.id && r.emoji === emoji
-  );
-
+  const existingIndex = message.reactions.findIndex((r) => r.userId === user.id && r.emoji === emoji);
   if (existingIndex >= 0) {
-    // Remove reaction
     message.reactions.splice(existingIndex, 1);
   } else {
-    // Check if user already had a different reaction; replace it or add new
-    const userOtherReactionIndex = message.reactions.findIndex(r => r.userId === user.id);
     const newReaction: MessageReaction = {
       id: generateUUID(),
       messageId,
@@ -897,16 +1398,10 @@ export async function toggleMessageReaction(
       emoji,
       createdAt: new Date().toISOString(),
     };
-
-    if (userOtherReactionIndex >= 0) {
-      message.reactions[userOtherReactionIndex] = newReaction;
-    } else {
-      message.reactions.push(newReaction);
-    }
+    message.reactions.push(newReaction);
   }
 
   saveStoredMessages(messagesMap);
-
   broadcastEvent({
     type: 'REACTION_UPDATE',
     conversationId,
@@ -923,16 +1418,34 @@ export async function editMessage(
   userId: string,
   newContent: string
 ): Promise<Message | null> {
+  const supabase = getSupabaseClient();
+  const now = new Date().toISOString();
+
+  if (supabase) {
+    try {
+      await supabase
+        .from('messages')
+        .update({
+          content: newContent,
+          edited_at: now,
+        })
+        .eq('id', messageId)
+        .eq('sender_id', userId);
+    } catch (err) {
+      console.warn('Supabase edit message error:', err);
+    }
+  }
+
   const messagesMap = getAllStoredMessages();
   const list = messagesMap[conversationId] || [];
-  const message = list.find(m => m.id === messageId);
+  const message = list.find((m) => m.id === messageId);
 
   if (!message || message.senderId !== userId) {
-    return null; // Authorization check
+    return null;
   }
 
   message.content = newContent;
-  message.editedAt = new Date().toISOString();
+  message.editedAt = now;
   saveStoredMessages(messagesMap);
 
   broadcastEvent({
@@ -950,17 +1463,37 @@ export async function deleteMessage(
   messageId: string,
   userId: string
 ): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('messages')
+        .update({
+          is_deleted: true,
+          content: 'This message was deleted',
+          media_url: null,
+        })
+        .eq('id', messageId)
+        .eq('sender_id', userId);
+
+      await supabase.from('message_reactions').delete().eq('message_id', messageId);
+    } catch (err) {
+      console.warn('Supabase delete message error:', err);
+    }
+  }
+
   const messagesMap = getAllStoredMessages();
   const list = messagesMap[conversationId] || [];
-  const message = list.find(m => m.id === messageId);
+  const message = list.find((m) => m.id === messageId);
 
   if (!message || message.senderId !== userId) {
-    return false; // Authorization check
+    return false;
   }
 
   message.isDeleted = true;
   message.content = 'This message was deleted';
   message.mediaUrl = undefined;
+  message.imageUrl = undefined;
   message.reactions = [];
   saveStoredMessages(messagesMap);
 
@@ -975,6 +1508,7 @@ export async function deleteMessage(
 }
 
 export function broadcastTypingStatus(conversationId: string, user: UserProfile, isTyping: boolean) {
+  // Broadcast locally
   broadcastEvent({
     type: 'TYPING',
     conversationId,
@@ -982,4 +1516,22 @@ export function broadcastTypingStatus(conversationId: string, user: UserProfile,
     senderUsername: user.username,
     isTyping,
   });
+
+  // Broadcast across devices via Supabase channel
+  if (supabaseChannelInstance) {
+    try {
+      supabaseChannelInstance.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          conversationId,
+          senderId: user.id,
+          senderUsername: user.username,
+          isTyping,
+        },
+      });
+    } catch (e) {
+      console.warn('Failed to broadcast typing via Supabase:', e);
+    }
+  }
 }

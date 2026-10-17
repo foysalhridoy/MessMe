@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useChat } from './context/ChatContext';
+import { useChat } from './context/useChat';
 import { WelcomeScreen } from './components/onboarding/WelcomeScreen';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatArea } from './components/chat/ChatArea';
@@ -26,6 +26,22 @@ export function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Mobile Browser History Back Support (always declared at top for Rules of Hooks)
+  useEffect(() => {
+    if (!isMobile || !currentUser) return;
+
+    if (activeConversation) {
+      window.history.pushState({ chatOpen: true }, '');
+    }
+
+    const handlePopState = () => {
+      setActiveConversationById('');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeConversation, isMobile, currentUser, setActiveConversationById]);
 
   // 1. Initial Authentication Check Loader
   if (isLoadingAuth) {
@@ -54,28 +70,41 @@ export function App() {
   }
 
   // 3. Main Messaging Interface
+
   return (
-    <div className="h-[100dvh] w-full max-w-[100vw] bg-white flex overflow-hidden font-sans">
-      {/* Sidebar: always visible on desktop (md+); visible on mobile when no active conversation */}
+    <div className="h-[100dvh] w-full max-w-[100vw] bg-white flex overflow-hidden font-sans overscroll-none select-none relative">
+      {/* Sidebar: full width slide on mobile; fixed width column on desktop */}
       <Sidebar
         className={`${
-          isMobile && activeConversation ? 'hidden' : 'w-full md:w-80 lg:w-96 flex-shrink-0'
+          isMobile
+            ? `w-full absolute inset-0 z-10 transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                activeConversation ? '-translate-x-full pointer-events-none' : 'translate-x-0'
+              }`
+            : 'w-full md:w-80 lg:w-96 flex-shrink-0'
         }`}
         onSelectConversation={() => {
           // Handled inside sidebar
         }}
       />
 
-      {/* Main Chat Area: always visible on desktop; visible on mobile only when active conversation is present */}
+      {/* Main Chat Area: slides in over sidebar on mobile; flex-1 column on desktop */}
       <div
-        className={`flex-1 h-full min-w-0 ${
-          isMobile && !activeConversation ? 'hidden' : 'flex flex-col'
+        className={`h-full min-w-0 ${
+          isMobile
+            ? `w-full absolute inset-0 z-20 transition-transform duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col bg-white ${
+                activeConversation ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+              }`
+            : 'flex-1 flex flex-col'
         }`}
       >
         <ChatArea
           onBackToSidebar={() => {
             // Unselect on mobile to return to sidebar list
-            setActiveConversationById('');
+            if (isMobile && window.history.state?.chatOpen) {
+              window.history.back();
+            } else {
+              setActiveConversationById('');
+            }
           }}
         />
       </div>

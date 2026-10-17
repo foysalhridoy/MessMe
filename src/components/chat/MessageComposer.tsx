@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Smile, Mic, Send, X, CornerDownRight, Image as ImageIcon, Ban } from 'lucide-react';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 import { EmojiPicker } from './EmojiPicker';
 import { VoiceRecorder } from './VoiceRecorder';
 
@@ -19,23 +19,13 @@ export const MessageComposer: React.FC = () => {
     unblockUser,
   } = useChat();
 
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => (activeConversation ? drafts[activeConversation.id] || '' : ''));
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<number | null>(null);
-
-  // Restore draft when switching active conversation
-  useEffect(() => {
-    if (activeConversation) {
-      setText(drafts[activeConversation.id] || '');
-      setImagePreview(null);
-      setIsRecordingVoice(false);
-      setShowEmojiPicker(false);
-    }
-  }, [activeConversation?.id]);
 
   // Adjust textarea height
   useEffect(() => {
@@ -156,24 +146,24 @@ export const MessageComposer: React.FC = () => {
   }
 
   return (
-    <div className="relative border-t border-slate-100 bg-white px-2.5 sm:px-5 md:px-8 py-2 sm:py-3 select-none">
+    <div className="relative border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-2 sm:px-4 md:px-8 pt-2 sm:pt-2.5 pb-[max(0.6rem,calc(env(safe-area-inset-bottom,0px)+0.4rem))] select-none flex-shrink-0 z-20">
       {/* 1. Quoted Reply Header if Replying */}
       {replyingTo && (
-        <div className="mb-2.5 p-3 bg-slate-50 border border-indigo-200/70 rounded-2xl flex items-center justify-between gap-3 text-sm animate-in slide-in-from-bottom-2 duration-150 shadow-sm">
+        <div className="mb-2 p-2.5 sm:p-3 bg-slate-50 border border-indigo-200/70 rounded-2xl flex items-center justify-between gap-3 text-sm animate-in slide-in-from-bottom-2 duration-150 shadow-xs">
           <div className="flex items-center gap-2.5 min-w-0">
-            <CornerDownRight className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+            <CornerDownRight className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 flex-shrink-0" />
             <div className="min-w-0">
-              <span className="font-bold text-indigo-700 block truncate text-xs">
+              <span className="font-bold text-indigo-700 block truncate text-[11px] sm:text-xs">
                 Replying to @{replyingTo.senderUsername}
               </span>
-              <span className="text-slate-600 block truncate text-sm mt-0.5">
+              <span className="text-slate-600 block truncate text-xs sm:text-sm mt-0.5">
                 {replyingTo.content}
               </span>
             </div>
           </div>
           <button
             onClick={cancelReply}
-            className="text-slate-400 hover:text-slate-800 p-1 rounded-xl hover:bg-slate-200/50 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-slate-800 p-1.5 rounded-xl hover:bg-slate-200/50 transition-colors cursor-pointer"
             title="Cancel reply"
             aria-label="Cancel reply"
           >
@@ -184,15 +174,15 @@ export const MessageComposer: React.FC = () => {
 
       {/* 2. Image attachment preview if selected */}
       {imagePreview && (
-        <div className="mb-2.5 p-2 bg-slate-50 border border-slate-200 rounded-2xl inline-flex items-center gap-3 relative animate-in fade-in">
-          <img src={imagePreview} alt="Upload preview" className="w-16 h-16 rounded-xl object-cover" />
+        <div className="mb-2 p-2 bg-slate-50 border border-slate-200 rounded-2xl inline-flex items-center gap-3 relative animate-in fade-in">
+          <img src={imagePreview} alt="Upload preview" className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover" />
           <div className="text-xs text-slate-600">
             <p className="font-semibold text-slate-800">Photo attached</p>
-            <p className="text-[11px] text-slate-400">Add a caption or hit send</p>
+            <p className="text-[11px] text-slate-400">Add a message or tap send</p>
           </div>
           <button
             onClick={() => setImagePreview(null)}
-            className="p-1 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-700 ml-2"
+            className="p-1.5 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-700 ml-2 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -207,7 +197,7 @@ export const MessageComposer: React.FC = () => {
         />
       ) : (
         /* 4. Main Composer Box */
-        <div className="flex items-end gap-1.5 sm:gap-2.5 bg-slate-50 hover:bg-slate-50/80 border border-slate-200/90 rounded-2xl p-1.5 sm:p-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition-all shadow-sm">
+        <div className="flex items-end gap-1 sm:gap-2 bg-slate-100/70 hover:bg-slate-100/90 border border-slate-200/80 rounded-2xl p-1 sm:p-1.5 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition-all shadow-xs">
           {/* Action icon triggers */}
           <div className="flex items-center gap-0.5 pb-0.5 sm:pb-1">
             {/* Emoji Button */}
@@ -215,7 +205,7 @@ export const MessageComposer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 transition-colors cursor-pointer"
+                className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 active:scale-95 transition-all cursor-pointer"
                 title="Add emoji"
                 aria-label="Emoji picker"
               >
@@ -235,7 +225,7 @@ export const MessageComposer: React.FC = () => {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 transition-colors cursor-pointer"
+              className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 active:scale-95 transition-all cursor-pointer"
               title="Attach photo"
               aria-label="Attach photo"
             >
@@ -258,7 +248,7 @@ export const MessageComposer: React.FC = () => {
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
-            className="flex-1 bg-transparent border-0 text-slate-900 placeholder:text-slate-400 text-[13.5px] sm:text-[14.5px] md:text-base py-1.5 sm:py-2 px-1.5 sm:px-2 resize-none focus:outline-none focus:ring-0 leading-normal max-h-36 overflow-y-auto font-normal tracking-[-0.01em]"
+            className="flex-1 bg-transparent border-0 text-slate-900 placeholder:text-slate-400 text-[14px] sm:text-[15px] py-2 px-1.5 resize-none focus:outline-none focus:ring-0 leading-normal max-h-32 sm:max-h-36 overflow-y-auto font-normal tracking-[-0.01em]"
           />
 
           {/* Voice Note Trigger */}
@@ -266,7 +256,7 @@ export const MessageComposer: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsRecordingVoice(true)}
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 transition-colors cursor-pointer pb-2"
+              className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 rounded-xl hover:bg-slate-200/60 active:scale-95 transition-all cursor-pointer pb-0.5 sm:pb-1"
               title="Record voice note"
               aria-label="Voice note"
             >

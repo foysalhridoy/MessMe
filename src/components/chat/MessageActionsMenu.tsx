@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Smile, Reply, Copy, Edit2, Trash2, MoreHorizontal } from 'lucide-react';
 import type { Message } from '../../types';
 import { ReactionPicker } from './ReactionPicker';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface MessageActionsMenuProps {
   message: Message;
@@ -21,9 +21,24 @@ export const MessageActionsMenu: React.FC<MessageActionsMenuProps> = ({
 
   if (message.isDeleted) return null;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(message.content);
-    showToast('Message copied to clipboard', 'info');
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message.content);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = message.content;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      showToast('Message copied to clipboard', 'info');
+    } catch {
+      showToast('Failed to copy to clipboard', 'warning');
+    }
     setShowMoreMenu(false);
   };
 

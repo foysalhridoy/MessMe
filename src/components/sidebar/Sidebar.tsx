@@ -6,7 +6,7 @@ import {
   X,
   Pin,
 } from 'lucide-react';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 import { Avatar } from '../common/Avatar';
 import { ConversationItem } from './ConversationItem';
 import { NewChatModal } from './NewChatModal';
@@ -82,6 +82,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectConver
               <span className="font-extrabold text-lg tracking-tight text-slate-900 leading-none">
                 MessMe
               </span>
+              <button
+                type="button"
+                onClick={() => setIsBackendOpen(true)}
+                className="w-2.5 h-2.5 rounded-full bg-emerald-500 hover:scale-125 transition-transform cursor-pointer"
+                title="Cloud sync & database status"
+                aria-label="Cloud sync status"
+              />
             </div>
             {currentUser && (
               <p className="text-xs text-slate-500 font-medium leading-tight mt-1">

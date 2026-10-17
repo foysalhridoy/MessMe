@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { X, Pin, VolumeX, Trash2, Mic, Image as ImageIcon, Timer, Ban } from 'lucide-react';
-import { useChat } from '../../context/ChatContext';
+import { X, Pin, VolumeX, Trash2, Mic, Image as ImageIcon, Ban } from 'lucide-react';
+import { useChat } from '../../context/useChat';
 import { Avatar } from '../common/Avatar';
-import { DisappearingMessagesModal } from './DisappearingMessagesModal';
 
 interface ConversationInfoDrawerProps {
   isOpen: boolean;
@@ -23,7 +21,6 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
     unblockUser,
     isBlocked,
   } = useChat();
-  const [isDisappearingModalOpen, setIsDisappearingModalOpen] = useState(false);
 
   if (!isOpen || !activeConversation) return null;
 
@@ -119,35 +116,7 @@ export const ConversationInfoDrawer: React.FC<ConversationInfoDrawerProps> = ({
             {activeConversation.isMuted ? 'Muted' : 'Off'}
           </span>
         </button>
-
-        <button
-          onClick={() => setIsDisappearingModalOpen(true)}
-          className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 text-sm text-slate-700 font-medium transition-colors cursor-pointer"
-        >
-          <span className="flex items-center gap-2.5">
-            <Timer className="w-4 h-4 text-slate-500" />
-            Disappearing Messages
-          </span>
-          <span
-            className={`text-xs font-bold px-2.5 py-0.5 rounded-lg ${
-              activeConversation.disappearingDuration && activeConversation.disappearingDuration !== 'off'
-                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                : 'text-slate-400'
-            }`}
-          >
-            {activeConversation.disappearingDuration === '24h'
-              ? '24 Hours'
-              : activeConversation.disappearingDuration === '48h'
-              ? '48 Hours'
-              : 'Off'}
-          </span>
-        </button>
       </div>
-
-      <DisappearingMessagesModal
-        isOpen={isDisappearingModalOpen}
-        onClose={() => setIsDisappearingModalOpen(false)}
-      />
 
       {/* Shared Media Tabs & Lists */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { getAvatarGradient } from '../../lib/avatars';
 
 interface AvatarProps {
@@ -26,16 +26,12 @@ export const Avatar: React.FC<AvatarProps> = ({
   isOnline,
   className = '',
 }) => {
-  const [imgError, setImgError] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const config = SIZES[size] || SIZES.md;
   const initial = (name || '?').trim().charAt(0).toUpperCase();
   const gradientClass = getAvatarGradient(seed || name);
 
-  useEffect(() => {
-    setImgError(false);
-  }, [avatarUrl]);
-
-  const hasValidPhoto = Boolean(avatarUrl && !imgError);
+  const hasValidPhoto = Boolean(avatarUrl && failedUrl !== avatarUrl);
 
   return (
     <div
@@ -53,7 +49,7 @@ export const Avatar: React.FC<AvatarProps> = ({
         <img
           src={avatarUrl}
           alt={name}
-          onError={() => setImgError(true)}
+          onError={() => setFailedUrl(avatarUrl || null)}
           style={{
             width: `${config.px}px`,
             height: `${config.px}px`,

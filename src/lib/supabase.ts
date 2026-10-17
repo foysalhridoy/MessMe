@@ -1,8 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Retrieve from environment or localStorage override (for testing in UI)
-const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Fallback credentials to ensure seamless cross-device communication out of the box
+const DEFAULT_SUPABASE_URL = 'https://tjmclqwhrkrdncgrndno.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqbWNscXdocmtyZG5jZ3JuZG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxMzg5MTUsImV4cCI6MjEwNzcxNDkxNX0.VJJWrKe-_aSgqFAMfbHAuD5_ywDRlqkyLcxljYgqX3k';
+
+// Retrieve from environment or fallback, or localStorage override (for testing in UI)
+const envUrl = (import.meta.env.VITE_SUPABASE_URL as string) || DEFAULT_SUPABASE_URL;
+const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || DEFAULT_SUPABASE_ANON_KEY;
 
 const localUrl = typeof window !== 'undefined' ? localStorage.getItem('messme_supabase_url') || '' : '';
 const localKey = typeof window !== 'undefined' ? localStorage.getItem('messme_supabase_key') || '' : '';

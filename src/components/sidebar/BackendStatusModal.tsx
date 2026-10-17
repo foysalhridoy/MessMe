@@ -3,7 +3,7 @@ import { Radio, Server } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { isSupabaseConfigured, SUPABASE_URL, updateSupabaseCredentials } from '../../lib/supabase';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface BackendStatusModalProps {
   isOpen: boolean;

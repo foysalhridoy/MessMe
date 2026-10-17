@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { ArrowLeft, Search, Info, Timer } from 'lucide-react';
+import { ArrowLeft, Search, Info } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
-import { useChat } from '../../context/ChatContext';
-import { DisappearingMessagesModal } from './DisappearingMessagesModal';
+import { useChat } from '../../context/useChat';
 
 interface ChatHeaderProps {
   onBack?: () => void;
@@ -18,13 +16,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   isSearchOpen,
 }) => {
   const { activeConversation, typingMap, isBlocked } = useChat();
-  const [isTimerModalOpen, setIsTimerModalOpen] = useState(false);
 
   if (!activeConversation) return null;
 
   const contact = activeConversation.otherParticipant;
   const isTyping = Boolean(typingMap[activeConversation.id]);
-  const disappearingDuration = activeConversation.disappearingDuration || 'off';
   const userBlocked = isBlocked(contact.userId);
 
   return (
@@ -34,17 +30,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         className="flex items-center gap-3 min-w-0 cursor-pointer group py-1 px-1.5 -ml-1.5 rounded-xl hover:bg-slate-50/80 transition-all"
         title="View details"
       >
-        {/* Mobile Back Button */}
+        {/* Mobile Back Button with generous 40px touch target */}
         {onBack && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               onBack();
             }}
-            className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+            className="md:hidden w-10 h-10 -ml-2 flex items-center justify-center text-slate-700 hover:text-slate-900 active:bg-slate-200/80 rounded-xl active:scale-95 transition-all cursor-pointer flex-shrink-0"
             aria-label="Back to conversations"
           >
-            <ArrowLeft className="w-5 h-5 stroke-[2.2]" />
+            <ArrowLeft className="w-5 h-5 stroke-[2.4]" />
           </button>
         )}
 
@@ -79,8 +75,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 Blocked user
               </span>
             ) : isTyping ? (
-              <span className="text-[11px] sm:text-xs text-indigo-600 font-medium flex items-center gap-1.5 leading-none animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" />
+              <span className="text-[11px] sm:text-xs text-indigo-600 font-semibold flex items-center gap-1.5 leading-none">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-1" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-2" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-3" />
+                </span>
                 typing...
               </span>
             ) : contact.isOnline ? (
@@ -98,22 +98,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
       {/* Header Actions */}
       <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setIsTimerModalOpen(true)}
-          className={`h-9 px-2.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer text-xs font-semibold ${
-            disappearingDuration !== 'off'
-              ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-300 shadow-xs'
-              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-          title="Disappearing messages settings"
-          aria-label="Disappearing messages"
-        >
-          <Timer className="w-4 h-4 stroke-[2]" />
-          <span className="hidden sm:inline">
-            {disappearingDuration !== 'off' ? disappearingDuration.toUpperCase() : ''}
-          </span>
-        </button>
-
         <button
           onClick={onToggleSearch}
           className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
@@ -136,11 +120,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           <Info className="w-4 h-4 stroke-[2]" />
         </button>
       </div>
-
-      <DisappearingMessagesModal
-        isOpen={isTimerModalOpen}
-        onClose={() => setIsTimerModalOpen(false)}
-      />
     </div>
   );
 };

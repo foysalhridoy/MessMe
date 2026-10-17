@@ -5,7 +5,7 @@ import { Avatar } from '../common/Avatar';
 import { Button } from '../common/Button';
 import type { UserProfile } from '../../types';
 import { searchUsersByUsername } from '../../services/db';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -19,35 +19,71 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, onClose }) =
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen || !currentUser) return;
+  const [prevOpen, setPrevOpen] = useState(isOpen);
+  if (isOpen !== prevOpen) {
+    setPrevOpen(isOpen);
+    if (!isOpen) {
+      setResults([]);
+      setIsSearching(false);
+      setHasSearched(false);
+      setQuery('');
+    }
+  }
 
-    if (!query.trim()) {
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
+    if (query.trim()) {
       setIsSearching(true);
-      searchUsersByUsername('', currentUser.id)
-        .then((allUsers) => {
-          setResults(allUsers);
-          setHasSearched(false);
-        })
-        .finally(() => setIsSearching(false));
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen || !currentUser?.id) {
       return;
     }
 
-    setIsSearching(true);
+    let cancelled = false;
+
+    if (!query.trim()) {
+      searchUsersByUsername('', currentUser.id)
+        .then((allUsers) => {
+          if (!cancelled) {
+            setResults(allUsers);
+            setHasSearched(false);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setIsSearching(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const timer = setTimeout(async () => {
       try {
         const matches = await searchUsersByUsername(query.trim(), currentUser.id);
-        setResults(matches);
-        setHasSearched(true);
+        if (!cancelled) {
+          setResults(matches);
+          setHasSearched(true);
+        }
       } catch {
-        setResults([]);
+        if (!cancelled) {
+          setResults([]);
+        }
       } finally {
-        setIsSearching(false);
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [query, currentUser, isOpen]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, currentUser?.id, isOpen]);
 
   const handleStartChat = async (targetUser: UserProfile) => {
     try {

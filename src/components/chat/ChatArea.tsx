@@ -1,16 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, ArrowDown, Sparkles, Calendar } from 'lucide-react';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
 import { SearchInChatBar } from './SearchInChatBar';
 import { ConversationInfoDrawer } from './ConversationInfoDrawer';
-import { DisappearingMessagesBanner } from './DisappearingMessagesBanner';
+import { Avatar } from '../common/Avatar';
 import type { Message } from '../../types';
 
 interface ChatAreaProps {
   onBackToSidebar?: () => void;
+}
+
+function getDateSeparatorLabel(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (date.toDateString() === todayStr) {
+    return 'Today';
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return 'Yesterday';
+  }
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  });
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
@@ -19,6 +39,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     activeConversation,
     activeMessages,
     isLoadingMessages,
+    typingMap,
   } = useChat();
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -26,9 +47,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
   const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [unreadBelowCount, setUnreadBelowCount] = useState(0);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  const prevMessagesCountRef = useRef(activeMessages.length);
 
   // Filter messages matching search query
   const matchingMessageIds = searchQuery.trim()
@@ -39,20 +62,50 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
         .map((m) => m.id)
     : [];
 
-  // Scroll to bottom on initial message load or new message (if near bottom)
+  // When opening a new conversation, reset overlays during render and jump to bottom
+  const [prevActiveConvId, setPrevActiveConvId] = useState(activeConversation?.id);
+  if (activeConversation?.id !== prevActiveConvId) {
+    setPrevActiveConvId(activeConversation?.id);
+    setUnreadBelowCount(0);
+    setIsSearchOpen(false);
+    setSearchQuery('');
+    setIsInfoOpen(false);
+  }
+
+  useEffect(() => {
+    if (activeConversation?.id) {
+      isNearBottomRef.current = true;
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }
+  }, [activeConversation?.id]);
+
+  // Scroll to bottom on new message send or arrival (if near bottom)
   useEffect(() => {
     if (isNearBottomRef.current && messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+      setUnreadBelowCount(0);
+    } else if (activeMessages.length > prevMessagesCountRef.current) {
+      // New message arrived while scrolled up
+      setUnreadBelowCount((prev) => prev + (activeMessages.length - prevMessagesCountRef.current));
     }
+    prevMessagesCountRef.current = activeMessages.length;
   }, [activeMessages.length]);
 
   const handleScroll = () => {
     if (!messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const isNearBottom = distanceFromBottom < 120;
+    const isNearBottom = distanceFromBottom < 100;
     isNearBottomRef.current = isNearBottom;
     setShowScrollBottom(!isNearBottom);
+    if (isNearBottom) {
+      setUnreadBelowCount(0);
+    }
   };
 
   const scrollToBottom = () => {
@@ -61,6 +114,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
         top: messagesContainerRef.current.scrollHeight,
         behavior: 'smooth',
       });
+      setUnreadBelowCount(0);
     }
   };
 
@@ -90,29 +144,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     scrollToMessage(matchingMessageIds[prevIdx]);
   };
 
-  // Group messages by date with clear, prominent styling
+  // Group messages by date with clear, sticky frosted styling
   const renderDateSeparator = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    let label = date.toLocaleDateString([], {
-      month: 'short',
-      day: 'numeric',
-      year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
-    });
-
-    if (date.toDateString() === today.toDateString()) {
-      label = 'Today';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      label = 'Yesterday';
-    }
-
+    const label = getDateSeparatorLabel(dateString);
     return (
-      <div key={`sep-${dateString}`} className="flex items-center justify-center my-6 select-none">
-        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100/90 px-3.5 py-1 rounded-full border border-slate-200/60 shadow-xs">
-          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+      <div key={`sep-${dateString}`} className="flex items-center justify-center my-4 select-none sticky top-2 z-10">
+        <span className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold text-slate-600 bg-white/90 backdrop-blur-md px-3.5 py-1 rounded-full border border-slate-200/80 shadow-xs">
+          <Calendar className="w-3.5 h-3.5 text-indigo-500" />
           <span>{label}</span>
         </span>
       </div>
@@ -160,6 +198,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
             onSearch={(q) => {
               setSearchQuery(q);
               setCurrentMatchIdx(0);
+              if (q.trim()) {
+                const matches = activeMessages
+                  .filter((m) =>
+                    m.content.toLowerCase().includes(q.toLowerCase().trim())
+                  )
+                  .map((m) => m.id);
+                if (matches.length > 0) {
+                  scrollToMessage(matches[0]);
+                }
+              }
             }}
             onClose={() => {
               setIsSearchOpen(false);
@@ -172,74 +220,110 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
           />
         )}
 
-        {/* Ephemeral Disappearing Messages Reminder Banner */}
-        <DisappearingMessagesBanner />
-
-        {/* Messages Stream */}
+        {/* Messages Stream - Anchored to bottom like WhatsApp & Telegram */}
         <div
           ref={messagesContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full px-2.5 sm:px-6 md:px-10 py-3 sm:py-6 space-y-1 chat-canvas-bg"
+          className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full px-2.5 sm:px-6 md:px-10 py-3 sm:py-6 chat-canvas-bg"
         >
-          {isLoadingMessages ? (
-            <div className="h-full flex items-center justify-center text-slate-400 text-sm font-medium">
-              Loading conversation messages...
-            </div>
-          ) : activeMessages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-400">
-              <div className="w-16 h-16 rounded-3xl bg-slate-50 flex items-center justify-center mb-3 border border-slate-100">
-                <MessageSquare className="w-8 h-8 text-slate-300 stroke-[1.6]" />
+          <div className="min-h-full flex flex-col justify-end">
+            {/* Top flexible spacer: pushes messages to bottom when content is short */}
+            <div className="flex-1 min-h-3" />
+
+            {isLoadingMessages ? (
+              <div className="py-20 flex items-center justify-center text-slate-400 text-sm font-medium">
+                Loading conversation messages...
               </div>
-              <p className="text-base font-bold text-slate-800">No messages in this chat yet</p>
-              <p className="text-sm text-slate-500 mt-1 max-w-sm">
-                Say hello to @{activeConversation.otherParticipant.username} to start the conversation!
-              </p>
-            </div>
-          ) : (
-            activeMessages.map((msg: Message, index: number) => {
-              const isSender = Boolean(currentUser && msg.senderId === currentUser.id);
-              const prevMsg = activeMessages[index - 1];
+            ) : activeMessages.length === 0 ? (
+              <div className="py-20 flex flex-col items-center justify-center text-center p-8 text-slate-400">
+                <div className="w-16 h-16 rounded-3xl bg-slate-50 flex items-center justify-center mb-3 border border-slate-100 shadow-xs">
+                  <MessageSquare className="w-8 h-8 text-slate-300 stroke-[1.6]" />
+                </div>
+                <p className="text-base font-bold text-slate-800">No messages in this chat yet</p>
+                <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                  Say hello to @{activeConversation.otherParticipant.username} to start the conversation!
+                </p>
+              </div>
+            ) : (
+              activeMessages.map((msg: Message, index: number) => {
+                const isSender = Boolean(currentUser && msg.senderId === currentUser.id);
+                const prevMsg = activeMessages[index - 1];
+                const nextMsg = activeMessages[index + 1];
 
-              // Show date separator if day changed
-              const showDate =
-                !prevMsg ||
-                new Date(msg.createdAt).toDateString() !==
-                  new Date(prevMsg.createdAt).toDateString();
+                // Show date separator if day changed
+                const showDate =
+                  !prevMsg ||
+                  new Date(msg.createdAt).toDateString() !==
+                    new Date(prevMsg.createdAt).toDateString();
 
-              // Group consecutive messages: show sender header if first of clump
-              const showSenderHeader =
-                !prevMsg ||
-                prevMsg.senderId !== msg.senderId ||
-                showDate;
+                // Group consecutive messages: show sender header if first of clump
+                const showSenderHeader =
+                  !prevMsg ||
+                  prevMsg.senderId !== msg.senderId ||
+                  showDate;
 
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDate && renderDateSeparator(msg.createdAt)}
-                  <MessageBubble
-                    message={msg}
-                    isSender={isSender}
-                    showSenderHeader={showSenderHeader}
-                    onScrollToMessage={scrollToMessage}
+                const isFirstInClump = showSenderHeader;
+                const isLastInClump =
+                  !nextMsg ||
+                  nextMsg.senderId !== msg.senderId ||
+                  new Date(nextMsg.createdAt).toDateString() !==
+                    new Date(msg.createdAt).toDateString();
+
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDate && renderDateSeparator(msg.createdAt)}
+                    <MessageBubble
+                      message={msg}
+                      isSender={isSender}
+                      showSenderHeader={showSenderHeader}
+                      isFirstInClump={isFirstInClump}
+                      isLastInClump={isLastInClump}
+                      onScrollToMessage={scrollToMessage}
+                    />
+                  </React.Fragment>
+                );
+              })
+            )}
+
+            {/* Live Telegram-Style Typing Bubble */}
+            {activeConversation && typingMap[activeConversation.id] && (
+              <div className="flex items-end gap-2 mt-2.5 mb-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="w-7 sm:w-8 flex-shrink-0">
+                  <Avatar
+                    name={activeConversation.otherParticipant.displayName || activeConversation.otherParticipant.username}
+                    avatarUrl={activeConversation.otherParticipant.avatarUrl}
+                    seed={activeConversation.otherParticipant.username}
+                    size="sm"
                   />
-                </React.Fragment>
-              );
-            })
-          )}
+                </div>
+                <div className="bg-white border border-slate-200/80 px-4 py-3 rounded-2xl rounded-tl-xs shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-1.5 select-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-1" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-2" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-3" />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Floating Scroll to Bottom Button */}
+        {/* Floating Scroll to Bottom Button with unread counter */}
         {showScrollBottom && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-20 sm:bottom-22 right-4 sm:right-8 z-20 w-10 h-10 rounded-full bg-white shadow-xl border border-slate-200 text-slate-700 hover:text-indigo-600 flex items-center justify-center transition-all animate-in fade-in zoom-in-95 cursor-pointer active:scale-95"
+            className="absolute bottom-20 sm:bottom-22 right-4 sm:right-8 z-20 w-11 h-11 rounded-full bg-white shadow-xl border border-slate-200/90 text-slate-700 hover:text-indigo-600 flex items-center justify-center transition-all animate-in fade-in zoom-in-95 cursor-pointer active:scale-95 group"
             title="Scroll to latest messages"
           >
-            <ArrowDown className="w-5 h-5 stroke-[2.2]" />
+            <ArrowDown className="w-5 h-5 stroke-[2.2] group-hover:translate-y-0.5 transition-transform" />
+            {unreadBelowCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 bg-indigo-600 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center shadow-md animate-bounce">
+                {unreadBelowCount}
+              </span>
+            )}
           </button>
         )}
 
         {/* Composer */}
-        <MessageComposer />
+        <MessageComposer key={activeConversation.id} />
       </div>
 
       {/* Conversation Info Panel Drawer */}

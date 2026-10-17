@@ -3,7 +3,7 @@ import { Camera, Trash2, Copy, Check, KeyRound, LogOut, ShieldCheck, Sparkles, U
 import { Modal } from '../common/Modal';
 import { Avatar } from '../common/Avatar';
 import { PRESET_AVATARS, compressAvatarImage } from '../../lib/avatars';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 import { getStoredUserById } from '../../services/db';
 
 interface ProfileModalProps {
@@ -27,6 +27,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
   const [isCopiedToken, setIsCopiedToken] = useState(false);
   const [isCopiedUserId, setIsCopiedUserId] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const [prevOpen, setPrevOpen] = useState(isOpen);
+  if (isOpen !== prevOpen) {
+    setPrevOpen(isOpen);
+    if (isOpen && currentUser) {
+      setDisplayName(currentUser.displayName || '');
+      setAbout(currentUser.about || '');
+      setAvatarUrl(currentUser.avatarUrl || '');
+    }
+  }
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,16 +78,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
     }
   };
 
-  const copyToClipboard = (text: string, type: 'token' | 'userId') => {
-    navigator.clipboard.writeText(text);
-    if (type === 'token') {
-      setIsCopiedToken(true);
-      setTimeout(() => setIsCopiedToken(false), 2000);
-      showToast('Session backup key copied to clipboard', 'success');
-    } else {
-      setIsCopiedUserId(true);
-      setTimeout(() => setIsCopiedUserId(false), 2000);
-      showToast('Internal User ID copied', 'info');
+  const copyToClipboard = async (text: string, type: 'token' | 'userId') => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      if (type === 'token') {
+        setIsCopiedToken(true);
+        setTimeout(() => setIsCopiedToken(false), 2000);
+        showToast('Session backup key copied to clipboard', 'success');
+      } else {
+        setIsCopiedUserId(true);
+        setTimeout(() => setIsCopiedUserId(false), 2000);
+        showToast('Internal User ID copied', 'info');
+      }
+    } catch {
+      showToast('Could not copy to clipboard', 'warning');
     }
   };
 

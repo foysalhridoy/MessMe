@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Trash2, Send } from 'lucide-react';
 import { formatAudioDuration } from '../../lib/audio';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface VoiceRecorderProps {
   onSend: (blob: Blob, duration: number) => void;
@@ -16,29 +16,25 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onSend, onCancel }
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const startTimeRef = useRef<number>(0);
 
-  useEffect(() => {
-    startRecording();
-    return () => {
-      cleanup();
-    };
-  }, []);
-
-  const cleanup = () => {
+  const cleanup = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-  };
+  }, []);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     audioChunksRef.current = [];
-    setSeconds(0);
+    startTimeRef.current = Date.now();
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -68,10 +64,18 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onSend, onCancel }
       cleanup();
       onCancel();
     }
-  };
+  }, [cleanup, onCancel, showToast]);
+
+  useEffect(() => {
+    startRecording();
+    return () => {
+      cleanup();
+    };
+  }, [startRecording, cleanup]);
 
   const handleStopAndSend = () => {
-    const finalDuration = Math.max(1, seconds);
+    const elapsedSeconds = Math.round((Date.now() - startTimeRef.current) / 1000);
+    const finalDuration = Math.max(1, elapsedSeconds || seconds);
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.onstop = () => {

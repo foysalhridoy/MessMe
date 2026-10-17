@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, ArrowRight, CheckCircle2, AlertCircle, KeyRound, Loader2, Sparkles, Shield, Camera, Upload, X } from 'lucide-react';
 import { checkUsernameAvailability } from '../../services/db';
 import { validateUsername } from '../../lib/identity';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 import { SessionRecoveryModal } from './SessionRecoveryModal';
 import { Avatar } from '../common/Avatar';
 import { compressAvatarImage } from '../../lib/avatars';
 
 export const WelcomeScreen: React.FC = () => {
-  const { onboardUser, showToast } = useChat();
+  const { onboardUser, loginWithUsername, showToast } = useChat();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
@@ -43,37 +43,60 @@ export const WelcomeScreen: React.FC = () => {
     }
   };
 
+  // Adjust availability and checking state during render when typing
+  const [prevUsername, setPrevUsername] = useState(username);
+  if (username !== prevUsername) {
+    setPrevUsername(username);
+    const trimmed = username.trim().toLowerCase();
+    if (!trimmed) {
+      setIsChecking(false);
+      setAvailability({ checked: false, available: false });
+    } else {
+      const validation = validateUsername(trimmed);
+      if (!validation.isValid) {
+        setIsChecking(false);
+        setAvailability({ checked: true, available: false, error: validation.error });
+      } else {
+        setIsChecking(true);
+        setAvailability({ checked: false, available: false });
+      }
+    }
+  }
+
   // Debounced username availability verification
   useEffect(() => {
     const trimmed = username.trim().toLowerCase();
-    if (!trimmed) {
-      setAvailability({ checked: false, available: false });
-      return;
-    }
+    if (!trimmed) return;
 
     const validation = validateUsername(trimmed);
-    if (!validation.isValid) {
-      setAvailability({ checked: true, available: false, error: validation.error });
-      return;
-    }
+    if (!validation.isValid) return;
 
-    setIsChecking(true);
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         const result = await checkUsernameAvailability(trimmed);
-        if (result.available) {
-          setAvailability({ checked: true, available: true });
-        } else {
-          setAvailability({ checked: true, available: false, error: 'Username is already taken.' });
+        if (!cancelled) {
+          if (result.available) {
+            setAvailability({ checked: true, available: true });
+          } else {
+            setAvailability({ checked: true, available: false, error: 'Username is already taken.' });
+          }
         }
       } catch {
-        setAvailability({ checked: true, available: false, error: 'Failed to verify username.' });
+        if (!cancelled) {
+          setAvailability({ checked: true, available: false, error: 'Failed to verify username.' });
+        }
       } finally {
-        setIsChecking(false);
+        if (!cancelled) {
+          setIsChecking(false);
+        }
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [username]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,6 +110,16 @@ export const WelcomeScreen: React.FC = () => {
         displayName.trim() || undefined,
         avatarUrl || undefined
       );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDirectLogin = async () => {
+    if (!username.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await loginWithUsername(username.trim().toLowerCase());
     } finally {
       setIsSubmitting(false);
     }
@@ -252,23 +285,43 @@ export const WelcomeScreen: React.FC = () => {
               {/* Live status feedback */}
               <div className="min-h-[24px] mt-2 px-1">
                 {availability.checked && !isChecking && (
-                  <p
-                    className={`text-xs flex items-center gap-1.5 font-medium ${
-                      availability.available ? 'text-emerald-700' : 'text-rose-600'
-                    }`}
-                  >
-                    {availability.available ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>@{username} is available! Ready to create.</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-4 h-4 text-rose-600" />
-                        <span>{availability.error}</span>
-                      </>
+                  <div>
+                    <p
+                      className={`text-xs flex items-center gap-1.5 font-medium ${
+                        availability.available ? 'text-emerald-700' : 'text-rose-600'
+                      }`}
+                    >
+                      {availability.available ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>@{username} is available! Ready to create.</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-4 h-4 text-rose-600" />
+                          <span>{availability.error}</span>
+                        </>
+                      )}
+                    </p>
+
+                    {/* Instant Login option if username is already registered */}
+                    {!availability.available && availability.error?.includes('taken') && (
+                      <div className="mt-2.5 p-3 bg-indigo-50/80 border border-indigo-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                        <span className="text-xs text-indigo-950 font-medium text-center sm:text-left">
+                          Is <span className="font-bold text-indigo-700">@{username}</span> your existing account on another device?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleDirectLogin}
+                          disabled={isSubmitting}
+                          className="w-full sm:w-auto px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
+                        >
+                          {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                          <span>Connect as @{username}</span>
+                        </button>
+                      </div>
                     )}
-                  </p>
+                  </div>
                 )}
                 {!availability.checked && (
                   <div className="flex items-center gap-1.5 text-xs text-slate-400">

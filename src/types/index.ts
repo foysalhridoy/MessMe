@@ -37,8 +37,6 @@ export interface MessageReplyReference {
   type: MessageType;
 }
 
-export type DisappearingDuration = 'off' | '24h' | '48h';
-
 export interface Message {
   id: string;
   conversationId: string;
@@ -55,7 +53,6 @@ export interface Message {
   reactions: MessageReaction[];
   createdAt: string;
   editedAt?: string;
-  expiresAt?: string; // Timestamp when message should auto-disappear to save storage
   isDeleted?: boolean;
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 }
@@ -79,7 +76,6 @@ export interface Conversation {
   unreadCount: number;
   isPinned: boolean;
   isMuted: boolean;
-  disappearingDuration?: DisappearingDuration; // 'off' | '24h' | '48h'
   createdAt: string;
   updatedAt: string;
 }

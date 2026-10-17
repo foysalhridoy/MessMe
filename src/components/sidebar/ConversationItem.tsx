@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Pin, VolumeX, MoreVertical, Trash2 } from 'lucide-react';
+import { Pin, VolumeX, MoreVertical, Trash2, CheckCheck } from 'lucide-react';
 import type { Conversation } from '../../types';
 import { Avatar } from '../common/Avatar';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/useChat';
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -10,29 +10,29 @@ interface ConversationItemProps {
   onSelect: () => void;
 }
 
+function formatConversationTime(isoString?: string): string {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  if (isToday) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 export const ConversationItem: React.FC<ConversationItemProps> = ({
   conversation,
   isActive,
   onSelect,
 }) => {
-  const { togglePin, toggleMute, clearConversation, typingMap, isBlocked } = useChat();
+  const { currentUser, togglePin, toggleMute, clearConversation, typingMap, isBlocked } = useChat();
   const [showMenu, setShowMenu] = useState(false);
 
   const contact = conversation.otherParticipant;
   const isTyping = Boolean(typingMap[conversation.id]);
   const userBlocked = isBlocked(contact.userId);
-
-  const formatTime = (isoString?: string) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-
-    if (isToday) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
 
   return (
     <div
@@ -76,19 +76,29 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
           <div className="flex items-center gap-1.5 flex-shrink-0 text-[11px] sm:text-xs font-medium text-slate-400">
             {conversation.isPinned && <Pin className="w-3.5 h-3.5 text-indigo-600 fill-indigo-600/30" />}
             {conversation.isMuted && <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
-            <span>{formatTime(conversation.lastMessage?.createdAt || conversation.updatedAt)}</span>
+            <span>{formatConversationTime(conversation.lastMessage?.createdAt || conversation.updatedAt)}</span>
           </div>
         </div>
 
         {/* Message preview & unread badge */}
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[12.5px] sm:text-sm truncate text-slate-500 flex-1 leading-normal">
+          <div className="text-[12.5px] sm:text-sm truncate text-slate-500 flex-1 leading-normal flex items-center gap-1 min-w-0">
             {isTyping ? (
-              <span className="text-indigo-600 font-semibold animate-pulse flex items-center gap-1">
+              <span className="text-indigo-600 font-semibold flex items-center gap-1.5">
+                <span className="flex items-center gap-0.5">
+                  <span className="w-1 h-1 rounded-full bg-indigo-500 typing-dot-1" />
+                  <span className="w-1 h-1 rounded-full bg-indigo-500 typing-dot-2" />
+                  <span className="w-1 h-1 rounded-full bg-indigo-500 typing-dot-3" />
+                </span>
                 typing...
               </span>
             ) : conversation.lastMessage ? (
               <span className="flex items-center gap-1.5 truncate">
+                {currentUser && conversation.lastMessage.senderId === currentUser.id && (
+                  <span className="inline-flex items-center text-indigo-500 flex-shrink-0">
+                    <CheckCheck className="w-3.5 h-3.5 stroke-[2.2]" />
+                  </span>
+                )}
                 {conversation.lastMessage.type === 'voice' ? (
                   <span className="italic text-slate-700 font-medium flex items-center gap-1">
                     🎙️ Voice note ({conversation.lastMessage.duration || 4}s)
@@ -98,7 +108,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                     📷 Photo attachment
                   </span>
                 ) : (
-                  conversation.lastMessage.content
+                  <span className="truncate">{conversation.lastMessage.content}</span>
                 )}
               </span>
             ) : (
@@ -107,7 +117,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
           </div>
 
           {conversation.unreadCount > 0 && (
-            <span className="flex-shrink-0 min-w-[20px] h-[20px] px-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-sm">
+            <span className="flex-shrink-0 min-w-[20px] h-[20px] px-1.5 bg-indigo-600 text-white text-[11px] font-extrabold rounded-full flex items-center justify-center shadow-xs">
               {conversation.unreadCount}
             </span>
           )}

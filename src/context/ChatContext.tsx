@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import type { Conversation, DisappearingDuration, Message, SessionData, ToastMessage, UserProfile } from '../types';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import type { Conversation, Message, SessionData, ToastMessage, UserProfile } from '../types';
 import {
   clearSession,
   generateSessionToken,
+  generateUUID,
   getSavedProfile,
   getSavedSession,
   saveSessionAndProfile,
@@ -22,67 +23,18 @@ import {
   togglePinConversation,
   broadcastTypingStatus,
   updateUserProfileInStorage,
-  setConversationDisappearingDuration,
-  purgeExpiredMessages,
   getStoredBlockedUserIds,
   blockUserInStorage,
   unblockUserInStorage,
+  getUserProfileByUsername,
 } from '../services/db';
-import { uploadVoiceAudio } from '../lib/audio';
-
-interface ChatContextType {
-  currentUser: UserProfile | null;
-  session: SessionData | null;
-  isLoadingAuth: boolean;
-  conversations: Conversation[];
-  activeConversation: Conversation | null;
-  activeMessages: Message[];
-  isLoadingMessages: boolean;
-  typingMap: Record<string, string>; // conversationId -> typing username
-  replyingTo: Message | null;
-  searchQueryInChat: string;
-  isSearchInChatOpen: boolean;
-  toasts: ToastMessage[];
-  drafts: Record<string, string>;
-  blockedUserIds: string[];
-
-  // Actions
-  onboardUser: (username: string, displayName?: string, avatarUrl?: string) => Promise<boolean>;
-  restoreSessionWithToken: (sessionToken: string, username: string) => Promise<boolean>;
-  logoutUser: () => void;
-  setActiveConversationById: (convId: string) => void;
-  startChatWithUser: (user: UserProfile) => Promise<Conversation>;
-  sendText: (content: string) => Promise<void>;
-  sendVoice: (blob: Blob, duration: number) => Promise<void>;
-  sendImageMessage: (imageDataUrl: string, caption?: string) => Promise<void>;
-  reactToMessage: (messageId: string, emoji: string) => Promise<void>;
-  startReply: (msg: Message) => void;
-  cancelReply: () => void;
-  editUserMessage: (messageId: string, content: string) => Promise<void>;
-  deleteUserMessage: (messageId: string) => Promise<void>;
-  togglePin: (convId: string) => Promise<void>;
-  toggleMute: (convId: string) => Promise<void>;
-  clearConversation: (convId: string) => Promise<void>;
-  setDisappearingDuration: (convId: string, duration: DisappearingDuration) => Promise<void>;
-  purgeStorageNow: (convId?: string) => Promise<number>;
-  blockUser: (targetUserId: string) => Promise<void>;
-  unblockUser: (targetUserId: string) => Promise<void>;
-  isBlocked: (userId: string) => boolean;
-  updateCurrentUserProfile: (displayName: string, avatarUrl?: string, about?: string) => Promise<void>;
-  setSearchQueryInChat: (query: string) => void;
-  setIsSearchInChatOpen: (open: boolean) => void;
-  setDraftForConversation: (convId: string, draft: string) => void;
-  showToast: (message: string, type?: ToastMessage['type'], title?: string) => void;
-  removeToast: (id: string) => void;
-  notifyTyping: (isTyping: boolean) => void;
-}
-
-const ChatContext = createContext<ChatContextType | undefined>(undefined);
+import { uploadVoiceAudio, playNotificationSound, playSendSound } from '../lib/audio';
+import { ChatContext } from './chatContextInstance';
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [session, setSession] = useState<SessionData | null>(null);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getSavedProfile());
+  const [session, setSession] = useState<SessionData | null>(() => getSavedSession());
+  const isLoadingAuth = false;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
@@ -94,7 +46,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [searchQueryInChat, setSearchQueryInChat] = useState('');
   const [isSearchInChatOpen, setIsSearchInChatOpen] = useState(false);
-  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>(() => {
+    const profile = getSavedProfile();
+    return profile?.id ? getStoredBlockedUserIds(profile.id) : [];
+  });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const showToast = useCallback((message: string, type: ToastMessage['type'] = 'info', title?: string) => {
@@ -109,66 +64,100 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // 1. Restore identity from local storage on initial mount
+  const currentUserRef = useRef<UserProfile | null>(currentUser);
   useEffect(() => {
-    const savedSession = getSavedSession();
-    const savedProfile = getSavedProfile();
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
-    if (savedSession && savedProfile) {
-      setSession(savedSession);
-      setCurrentUser(savedProfile);
-    }
-    setIsLoadingAuth(false);
-  }, []);
-
-  // 2. Load conversations when current user is available
-  const loadConversations = useCallback(async (userId: string) => {
-    const convs = await fetchUserConversations(userId);
-    setConversations(convs);
-    return convs;
-  }, []);
-
+  const activeConversationRef = useRef<Conversation | null>(activeConversation);
   useEffect(() => {
-    if (currentUser?.id) {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+
+  // Sync state during render when user changes
+  const [prevUserId, setPrevUserId] = useState(currentUser?.id);
+  if (currentUser?.id !== prevUserId) {
+    setPrevUserId(currentUser?.id);
+    if (!currentUser?.id) {
+      setBlockedUserIds([]);
+      setConversations([]);
+      setActiveConversation(null);
+      setActiveMessages([]);
+    } else {
       setBlockedUserIds(getStoredBlockedUserIds(currentUser.id));
-      loadConversations(currentUser.id).then((convs) => {
-        if (convs.length > 0 && !activeConversation) {
+    }
+  }
+
+  // Set loading state and clear messages during render when active conversation changes
+  const [prevActiveConvId, setPrevActiveConvId] = useState(activeConversation?.id);
+  if (activeConversation?.id !== prevActiveConvId) {
+    setPrevActiveConvId(activeConversation?.id);
+    if (!activeConversation?.id) {
+      setActiveMessages([]);
+      setIsLoadingMessages(false);
+    } else {
+      setIsLoadingMessages(true);
+    }
+  }
+
+  // 1. Load conversations when current user is available
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    let isCancelled = false;
+
+    fetchUserConversations(currentUser.id).then((convs) => {
+      if (!isCancelled) {
+        setConversations(convs);
+        if (convs.length > 0 && !activeConversationRef.current) {
           // Select first conversation by default on desktop
           if (window.innerWidth >= 768) {
             setActiveConversation(convs[0]);
           }
         }
-      });
-    } else {
-      setBlockedUserIds([]);
-      setConversations([]);
-      setActiveConversation(null);
-      setActiveMessages([]);
-    }
-  }, [currentUser?.id, loadConversations]);
-
-  // 3. Load messages when active conversation changes
-  useEffect(() => {
-    if (!activeConversation) {
-      setActiveMessages([]);
-      return;
-    }
-
-    setIsLoadingMessages(true);
-    fetchMessages(activeConversation.id).then((msgs) => {
-      setActiveMessages(msgs);
-      setIsLoadingMessages(false);
+      }
     });
-  }, [activeConversation?.id]);
 
-  // 4. Realtime events listener
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser?.id]);
+
+  // 2. Load messages when active conversation changes
+  const activeConversationId = activeConversation?.id;
   useEffect(() => {
+    if (!activeConversationId) return;
+
+    let isCancelled = false;
+    fetchMessages(activeConversationId).then((msgs) => {
+      if (!isCancelled) {
+        setActiveMessages(msgs);
+        setIsLoadingMessages(false);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeConversationId]);
+
+  // 4. Realtime events listener (stays connected for the session lifetime)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
     const unsubscribe = subscribeToRealtimeEvents((payload) => {
+      const currentActive = activeConversationRef.current;
+      const loggedInUser = currentUserRef.current;
+
       if (payload.type === 'NEW_MESSAGE' && payload.message) {
         const msg = payload.message;
 
+        // Play chime if message came from another user
+        if (loggedInUser && msg.senderId !== loggedInUser.id) {
+          playNotificationSound();
+        }
+
         // If message belongs to active conversation, append
-        if (activeConversation && msg.conversationId === activeConversation.id) {
+        if (currentActive && msg.conversationId === currentActive.id) {
           setActiveMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg];
@@ -177,36 +166,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Update conversation preview and sort
         setConversations((prev) => {
-          return prev.map((c) => {
+          const exists = prev.some((c) => c.id === msg.conversationId);
+          if (!exists && loggedInUser?.id) {
+            // New conversation arrived from another device!
+            fetchUserConversations(loggedInUser.id).then(setConversations);
+            return prev;
+          }
+
+          const updated = prev.map((c) => {
             if (c.id === msg.conversationId) {
-              const isCurrentChat = activeConversation?.id === c.id;
+              const isCurrentChat = currentActive?.id === c.id;
               return {
                 ...c,
                 lastMessage: msg,
-                unreadCount: isCurrentChat ? 0 : c.unreadCount + 1,
+                unreadCount: isCurrentChat ? 0 : (c.unreadCount || 0) + 1,
                 updatedAt: msg.createdAt,
               };
             }
             return c;
           });
+
+          return updated.sort(
+            (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+          );
         });
       } else if (payload.type === 'REACTION_UPDATE' && payload.message) {
         const updatedMsg = payload.message;
-        if (activeConversation && updatedMsg.conversationId === activeConversation.id) {
+        if (currentActive && updatedMsg.conversationId === currentActive.id) {
           setActiveMessages((prev) =>
             prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m))
           );
         }
       } else if (payload.type === 'EDIT_MESSAGE' && payload.message) {
         const editedMsg = payload.message;
-        if (activeConversation && editedMsg.conversationId === activeConversation.id) {
+        if (currentActive && editedMsg.conversationId === currentActive.id) {
           setActiveMessages((prev) =>
             prev.map((m) => (m.id === editedMsg.id ? editedMsg : m))
           );
         }
       } else if (payload.type === 'DELETE_MESSAGE' && payload.message) {
         const deletedMsg = payload.message;
-        if (activeConversation && deletedMsg.conversationId === activeConversation.id) {
+        if (currentActive && deletedMsg.conversationId === currentActive.id) {
           setActiveMessages((prev) =>
             prev.map((m) => (m.id === deletedMsg.id ? deletedMsg : m))
           );
@@ -278,44 +278,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               : m
           )
         );
-      } else if (payload.type === 'DISAPPEARING_DURATION_UPDATE' && payload.conversationId) {
-        const { conversationId, disappearingDuration } = payload;
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === conversationId ? { ...c, disappearingDuration } : c
-          )
-        );
-        setActiveConversation((prev) =>
-          prev && prev.id === conversationId
-            ? { ...prev, disappearingDuration }
-            : prev
-        );
-      } else if (payload.type === 'MESSAGES_PURGED' && payload.conversationId) {
-        if (activeConversation && activeConversation.id === payload.conversationId) {
-          fetchMessages(activeConversation.id).then((fresh) => setActiveMessages(fresh));
-        }
       } else if (payload.type === 'BLOCK_STATUS_UPDATE') {
-        if (currentUser?.id) {
-          setBlockedUserIds(getStoredBlockedUserIds(currentUser.id));
+        if (loggedInUser?.id) {
+          setBlockedUserIds(getStoredBlockedUserIds(loggedInUser.id));
         }
       }
     });
 
     return unsubscribe;
-  }, [activeConversation, currentUser?.id]);
-
-  // Periodic background storage cleaner: automatically purges expired messages to free storage
-  useEffect(() => {
-    const cleanerInterval = window.setInterval(async () => {
-      const { purgedCount } = await purgeExpiredMessages();
-      if (purgedCount > 0 && activeConversation) {
-        const fresh = await fetchMessages(activeConversation.id);
-        setActiveMessages(fresh);
-      }
-    }, 60000); // Check every minute
-
-    return () => clearInterval(cleanerInterval);
-  }, [activeConversation?.id]);
+  }, [currentUser?.id]);
 
   // Onboard new user with unique username and optional profile photo
   const onboardUser = async (username: string, displayName?: string, avatarUrl?: string): Promise<boolean> => {
@@ -340,37 +311,78 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Restore session using backup token
-  const restoreSessionWithToken = async (sessionToken: string, username: string): Promise<boolean> => {
-    // In our architecture, the session token matches stored credentials
+  // Login with existing username on this or another device
+  const loginWithUsername = async (username: string): Promise<boolean> => {
     const cleanUser = username.trim().toLowerCase();
-    const cleanToken = sessionToken.trim();
-
-    if (!cleanUser || !cleanToken) {
-      showToast('Please provide both username and session backup key.', 'warning');
+    if (!cleanUser) {
+      showToast('Please enter a username.', 'warning');
       return false;
     }
 
-    const newProfile: UserProfile = {
-      id: 'usr_restored_' + cleanUser,
-      username: cleanUser,
-      displayName: cleanUser,
-      createdAt: new Date().toISOString(),
-      isOnline: true,
-    };
+    try {
+      const existing = await getUserProfileByUsername(cleanUser);
+      if (!existing) {
+        showToast(`User @${cleanUser} not found. Please pick a new username to register.`, 'error');
+        return false;
+      }
 
-    const newSession: SessionData = {
-      userId: newProfile.id,
-      username: cleanUser,
-      sessionToken: cleanToken,
-      createdAt: new Date().toISOString(),
-    };
+      const sessionToken = generateSessionToken();
+      const newSession: SessionData = {
+        userId: existing.id,
+        username: existing.username,
+        sessionToken,
+        createdAt: new Date().toISOString(),
+      };
 
-    saveSessionAndProfile(newSession, newProfile);
-    setSession(newSession);
-    setCurrentUser(newProfile);
-    showToast(`Identity for @${cleanUser} restored successfully.`, 'success', 'Session Restored');
-    return true;
+      saveSessionAndProfile(newSession, existing);
+      setSession(newSession);
+      setCurrentUser(existing);
+      showToast(`Welcome back, @${existing.username}!`, 'success', 'Device Connected');
+      return true;
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Login failed', 'error');
+      return false;
+    }
+  };
+
+  // Restore session using backup token or username
+  const restoreSessionWithToken = async (sessionToken: string, username: string): Promise<boolean> => {
+    const cleanUser = username.trim().toLowerCase();
+    const cleanToken = sessionToken.trim();
+
+    if (!cleanUser) {
+      showToast('Please provide your username.', 'warning');
+      return false;
+    }
+
+    try {
+      // First check if user exists in Supabase
+      const existing = await getUserProfileByUsername(cleanUser);
+      const profileToUse: UserProfile = existing || {
+        id: generateUUID(),
+        username: cleanUser,
+        displayName: cleanUser,
+        createdAt: new Date().toISOString(),
+        isOnline: true,
+      };
+
+      const finalToken = cleanToken || generateSessionToken();
+      const newSession: SessionData = {
+        userId: profileToUse.id,
+        username: cleanUser,
+        sessionToken: finalToken,
+        createdAt: new Date().toISOString(),
+      };
+
+      saveSessionAndProfile(newSession, profileToUse);
+      setSession(newSession);
+      setCurrentUser(profileToUse);
+      showToast(`Identity for @${cleanUser} connected successfully.`, 'success', 'Session Restored');
+      return true;
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to restore session', 'error');
+      return false;
+    }
   };
 
   const logoutUser = () => {
@@ -383,13 +395,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const setActiveConversationById = (convId: string) => {
+    if (!convId) {
+      setActiveConversation(null);
+      setReplyingTo(null);
+      setIsSearchInChatOpen(false);
+      setSearchQueryInChat('');
+      return;
+    }
     const found = conversations.find((c) => c.id === convId);
     if (found) {
       // Mark as read
+      const updated = { ...found, unreadCount: 0 };
       setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, unreadCount: 0 } : c))
+        prev.map((c) => (c.id === convId ? updated : c))
       );
-      setActiveConversation(found);
+      setActiveConversation(updated);
       setReplyingTo(null);
       setIsSearchInChatOpen(false);
       setSearchQueryInChat('');
@@ -424,6 +444,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : undefined;
 
     setReplyingTo(null);
+    playSendSound();
     await sendMessage(activeConversation.id, currentUser, clean, 'text', undefined, undefined, replyRef);
   };
 
@@ -442,6 +463,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         undefined
       );
       showToast('Voice message sent', 'success');
+      playSendSound();
     } catch {
       showToast('Failed to send voice message', 'error');
     }
@@ -461,6 +483,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         imageDataUrl
       );
       showToast('Photo sent', 'success');
+      playSendSound();
     } catch {
       showToast('Failed to send photo', 'error');
     }
@@ -519,51 +542,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       prev.map((c) => (c.id === convId ? { ...c, lastMessage: undefined, unreadCount: 0 } : c))
     );
     showToast('Conversation cleared', 'info');
-  };
-
-  const setDisappearingDuration = async (convId: string, duration: DisappearingDuration) => {
-    if (!currentUser) return;
-    const updated = await setConversationDisappearingDuration(currentUser.id, convId, duration);
-    if (updated) {
-      setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, disappearingDuration: duration } : c))
-      );
-      setActiveConversation((prev) =>
-        prev && prev.id === convId ? { ...prev, disappearingDuration: duration } : prev
-      );
-
-      // Purge any messages exceeding duration immediately and refresh active messages
-      const { remainingMessages, purgedCount } = await purgeExpiredMessages(convId);
-      if (activeConversation?.id === convId) {
-        setActiveMessages(remainingMessages);
-      }
-
-      showToast(
-        duration === 'off'
-          ? 'Disappearing messages turned off'
-          : `Messages will auto-delete after ${duration}${
-              purgedCount > 0 ? ` (${purgedCount} expired messages cleaned)` : ''
-            }`,
-        'info',
-        'Storage Auto-Clean'
-      );
-    }
-  };
-
-  const purgeStorageNow = async (convId?: string): Promise<number> => {
-    const { purgedCount, remainingMessages } = await purgeExpiredMessages(convId);
-    if (convId && activeConversation?.id === convId) {
-      setActiveMessages(remainingMessages);
-    } else if (activeConversation) {
-      const fresh = await fetchMessages(activeConversation.id);
-      setActiveMessages(fresh);
-    }
-    if (purgedCount > 0) {
-      showToast(`${purgedCount} expired messages purged to save storage.`, 'success', 'Storage Saved');
-    } else {
-      showToast('Storage is clean. No expired messages.', 'info', 'Storage Check');
-    }
-    return purgedCount;
   };
 
   const blockUser = async (targetUserId: string) => {
@@ -651,6 +629,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         drafts,
         blockedUserIds,
         onboardUser,
+        loginWithUsername,
         restoreSessionWithToken,
         logoutUser,
         setActiveConversationById,
@@ -666,8 +645,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         togglePin,
         toggleMute,
         clearConversation,
-        setDisappearingDuration,
-        purgeStorageNow,
         blockUser,
         unblockUser,
         isBlocked,
@@ -683,12 +660,4 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {children}
     </ChatContext.Provider>
   );
-};
-
-export const useChat = () => {
-  const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
-  return context;
 };
