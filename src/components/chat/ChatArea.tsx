@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageSquare, ArrowDown, Sparkles, Calendar } from 'lucide-react';
 import { useChat } from '../../context/useChat';
 import { ChatHeader } from './ChatHeader';
@@ -50,6 +50,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
   const [unreadBelowCount, setUnreadBelowCount] = useState(0);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const prevMessagesCountRef = useRef(activeMessages.length);
 
@@ -80,14 +81,45 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     setIsInfoOpen(false);
   }
 
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+      bottomAnchorRef.current?.scrollIntoView({
+        behavior: smooth ? 'smooth' : 'auto',
+        block: 'end',
+      });
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          bottomAnchorRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        }
+      }, 120);
+      setUnreadBelowCount(0);
+      isNearBottomRef.current = true;
+    }
+  }, []);
+
+  // Listen for image load or media expansion events from message bubbles
+  useEffect(() => {
+    const handleScrollEvent = () => {
+      scrollToBottom(true);
+    };
+
+    window.addEventListener('messme:scroll-to-bottom', handleScrollEvent);
+    return () => {
+      window.removeEventListener('messme:scroll-to-bottom', handleScrollEvent);
+    };
+  }, [scrollToBottom]);
+
   useEffect(() => {
     if (activeConversation?.id) {
       isNearBottomRef.current = true;
-      if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-      }
+      scrollToBottom(false);
     }
-  }, [activeConversation?.id]);
+  }, [activeConversation?.id, scrollToBottom]);
 
   // Scroll to bottom on new message send or arrival (always scroll if self-sent or near bottom)
   useEffect(() => {
@@ -99,57 +131,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
 
-    // If sent by user, or near bottom (within 350px), always scroll down smoothly to show new message
-    if (isSelfSender || isNearBottomRef.current || distanceFromBottom < 350) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: isSelfSender ? 'auto' : 'smooth',
-      });
-      // Safety tick to guarantee full visibility after message DOM layout completes
-      const t = setTimeout(() => {
-        if (messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-        }
-      }, 100);
+    // If sent by user, or near bottom (within 550px), always scroll down so new message is 100% visible
+    if (isSelfSender || isNearBottomRef.current || distanceFromBottom < 550) {
+      scrollToBottom(true);
+      const t1 = setTimeout(() => scrollToBottom(false), 80);
+      const t2 = setTimeout(() => scrollToBottom(false), 220);
       setUnreadBelowCount(0);
       isNearBottomRef.current = true;
-      return () => clearTimeout(t);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     } else if (activeMessages.length > prevMessagesCountRef.current) {
       // New message arrived while user is scrolled up reading old history
       setUnreadBelowCount((prev) => prev + (activeMessages.length - prevMessagesCountRef.current));
     }
     prevMessagesCountRef.current = activeMessages.length;
-  }, [activeMessages, currentUser]);
+  }, [activeMessages, currentUser, scrollToBottom]);
 
   // Smoothly scroll to bottom when other user starts typing
   useEffect(() => {
     if (!isOtherTyping || !messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    if (distanceFromBottom < 400 || isNearBottomRef.current) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
+    if (distanceFromBottom < 450 || isNearBottomRef.current) {
+      scrollToBottom(true);
     }
-  }, [isOtherTyping]);
+  }, [isOtherTyping, scrollToBottom]);
 
   // Keep chat anchored to bottom when virtual keyboard opens, closes, or resizes
   useEffect(() => {
     const handleViewportResize = () => {
-      if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-        setTimeout(() => {
-          if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-          }
-        }, 150);
-        setTimeout(() => {
-          if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-          }
-        }, 300);
-      }
+      scrollToBottom(false);
+      setTimeout(() => scrollToBottom(false), 150);
+      setTimeout(() => scrollToBottom(false), 300);
     };
 
     window.visualViewport?.addEventListener('resize', handleViewportResize);
@@ -163,31 +178,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
       window.removeEventListener('resize', handleViewportResize);
       window.removeEventListener('messme:focus-composer', handleViewportResize);
     };
-  }, []);
+  }, [scrollToBottom]);
 
   const handleScroll = () => {
     if (!messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const isNearBottom = distanceFromBottom < 200;
+    const isNearBottom = distanceFromBottom < 220;
     isNearBottomRef.current = isNearBottom;
     setShowScrollBottom(!isNearBottom);
     if (isNearBottom) {
-      setUnreadBelowCount(0);
-    }
-  };
-
-  const scrollToBottom = () => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-      setTimeout(() => {
-        if (messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-        }
-      }, 120);
       setUnreadBelowCount(0);
     }
   };
@@ -378,15 +378,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
               </div>
             )}
 
-            {/* Bottom spacer to prevent message bubble touching composer */}
-            <div className="h-3 sm:h-4 flex-shrink-0" />
+            {/* Dedicated bottom anchor with generous clearance so messages stay cleanly above the composer */}
+            <div ref={bottomAnchorRef} className="h-6 sm:h-8 flex-shrink-0" />
           </div>
         </div>
 
         {/* Floating Scroll to Bottom Button with unread counter */}
         {showScrollBottom && (
           <button
-            onClick={scrollToBottom}
+            onClick={() => scrollToBottom(true)}
             className="absolute bottom-20 sm:bottom-22 right-4 sm:right-8 z-20 w-11 h-11 rounded-full bg-white shadow-xl border border-slate-200/90 text-slate-700 hover:text-indigo-600 flex items-center justify-center transition-all animate-in fade-in zoom-in-95 cursor-pointer active:scale-95 group"
             title="Scroll to latest messages"
           >

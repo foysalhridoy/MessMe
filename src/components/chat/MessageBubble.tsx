@@ -109,7 +109,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     >
       {/* Sender name for received messages */}
       {showSenderHeader && !isSender && (
-        <span className="text-[11px] sm:text-xs font-bold text-slate-600 ml-10 sm:ml-11 mb-1 select-none">
+        <span className="text-[11px] sm:text-xs font-bold text-slate-600 ml-12 sm:ml-13 mb-1 select-none">
           {message.senderDisplayName && message.senderDisplayName.toLowerCase() !== 'user'
             ? message.senderDisplayName
             : (message.senderUsername && message.senderUsername.toLowerCase() !== 'user' ? `@${message.senderUsername}` : 'Friend')}
@@ -117,13 +117,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       )}
 
       <div
-        className={`flex items-end gap-2.5 sm:gap-3 max-w-[88%] sm:max-w-[78%] md:max-w-[68%] min-w-0 ${
+        className={`flex items-end gap-3.5 sm:gap-4 max-w-[88%] sm:max-w-[78%] md:max-w-[68%] min-w-0 ${
           isSender ? 'ml-auto justify-end' : 'justify-start'
         }`}
       >
-        {/* Avatar for received messages only - positioned at bottom of clump with comfortable spacing like Telegram */}
+        {/* Avatar for received messages only - positioned with generous comfortable spacing */}
         {!isSender && (
-          <div className="w-7 sm:w-8 flex-shrink-0 select-none pb-0.5">
+          <div className="w-8 sm:w-9 flex-shrink-0 select-none pb-0.5 mr-1 sm:mr-1.5">
             {isLastInClump ? (
               <Avatar
                 name={message.senderDisplayName || message.senderUsername}
@@ -132,7 +132,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 size="sm"
               />
             ) : (
-              <div className="w-7 sm:w-8" />
+              <div className="w-8 sm:w-9" />
             )}
           </div>
         )}
@@ -212,11 +212,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <>
                 {/* Photo attachment if present */}
                 {imageSource && (
-                  <div className="mb-2 max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-black/5 shadow-xs">
+                  <div className="mb-2 max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-black/5 shadow-xs min-h-[140px] sm:min-h-[180px]">
                     <img
                       src={imageSource}
                       alt="Attachment"
-                      loading="lazy"
+                      onLoad={() => {
+                        window.dispatchEvent(new CustomEvent('messme:scroll-to-bottom'));
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedPhoto(imageSource);
