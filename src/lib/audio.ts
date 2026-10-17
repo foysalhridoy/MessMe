@@ -63,17 +63,34 @@ export async function uploadVoiceAudio(blob: Blob, userId: string): Promise<stri
   return await blobToDataUrl(blob);
 }
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return null;
+      sharedAudioCtx = new AudioContextClass();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Play a subtle modern chime when a new message arrives from another device
  */
 export function playNotificationSound() {
-  if (typeof window === 'undefined') return;
   try {
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -98,13 +115,9 @@ export function playNotificationSound() {
  * Play a crisp subtle pop sound on sending a message
  */
 export function playSendSound() {
-  if (typeof window === 'undefined') return;
   try {
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCheck, Check, CornerDownRight } from 'lucide-react';
+import { CheckCheck, Check, CornerDownRight, ImageOff } from 'lucide-react';
 import type { Message } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
@@ -36,6 +36,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showHeartBurst, setShowHeartBurst] = useState(false);
+  const [isImageBroken, setIsImageBroken] = useState(false);
 
   const handleSaveEdit = async () => {
     if (!editContent.trim()) return;
@@ -212,19 +213,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <>
                 {/* Photo attachment if present */}
                 {imageSource && (
-                  <div className="mb-2 max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-black/5 shadow-xs min-h-[140px] sm:min-h-[180px]">
-                    <img
-                      src={imageSource}
-                      alt="Attachment"
-                      onLoad={() => {
-                        window.dispatchEvent(new CustomEvent('messme:scroll-to-bottom'));
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedPhoto(imageSource);
-                      }}
-                      className="max-h-72 sm:max-h-96 w-auto max-w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
-                    />
+                  <div className="mb-2 max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-black/5 shadow-xs">
+                    {isImageBroken ? (
+                      <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400 bg-slate-100 rounded-2xl">
+                        <ImageOff className="w-4 h-4 text-slate-400" />
+                        <span>Image unavailable</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={imageSource}
+                        alt="Attachment"
+                        onError={() => setIsImageBroken(true)}
+                        onLoad={() => {
+                          window.dispatchEvent(new CustomEvent('messme:scroll-to-bottom'));
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPhoto(imageSource);
+                        }}
+                        className="max-h-72 sm:max-h-96 w-auto max-w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity block"
+                      />
+                    )}
                   </div>
                 )}
 
