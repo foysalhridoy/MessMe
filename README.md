@@ -139,11 +139,11 @@ npm install
 ```bash
 npm run dev
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Open https://messmee.vercel.app/ in your browser.
 
 ### 4. Test Multi-User Real-Time (Local Mode)
-1. Open [http://localhost:5173](http://localhost:5173) in a standard browser tab and register as `@alice`.
-2. Open [http://localhost:5173](http://localhost:5173) in an Incognito / Private window and register as `@bob`.
+1. Open https://messmee.vercel.app/ in a standard browser tab and register as `@alice`.
+2. Open https://messmee.vercel.app/ in an Incognito / Private window and register as `@bob`.
 3. In `@alice`'s window, click **+ (New Chat)**, search `@bob`, and start chatting!
 4. Send text, voice notes, photos, and reactions to experience live real-time sync across tabs.
 
