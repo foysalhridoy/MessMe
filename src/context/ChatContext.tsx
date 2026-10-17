@@ -34,6 +34,7 @@ import {
   updateUserLastSeen,
 } from '../services/db';
 import { uploadVoiceAudio, playNotificationSound, playSendSound } from '../lib/audio';
+import { showSystemNotification, requestNotificationPermission } from '../lib/notifications';
 import { ChatContext } from './chatContextInstance';
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -102,6 +103,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     activeConversationRef.current = activeConversation;
   }, [activeConversation]);
+
+  const conversationsRef = useRef<Conversation[]>(conversations);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // Request browser notification permissions on first user gesture
+  useEffect(() => {
+    const handleGesture = () => {
+      requestNotificationPermission();
+      window.removeEventListener('click', handleGesture);
+      window.removeEventListener('touchstart', handleGesture);
+    };
+    window.addEventListener('click', handleGesture, { once: true });
+    window.addEventListener('touchstart', handleGesture, { once: true });
+    return () => {
+      window.removeEventListener('click', handleGesture);
+      window.removeEventListener('touchstart', handleGesture);
+    };
+  }, []);
 
   // Sync state during render when user changes
   const [prevUserId, setPrevUserId] = useState(currentUser?.id);
@@ -207,9 +228,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (payload.type === 'NEW_MESSAGE' && payload.message) {
         const msg = payload.message;
 
-        // Play chime if message came from another user
+        const targetConv = conversationsRef.current.find((c) => c.id === msg.conversationId);
+        const isMuted = Boolean(targetConv?.isMuted);
+
+        // Play chime if message came from another user and conversation is not muted
         if (loggedInUser && msg.senderId !== loggedInUser.id) {
-          playNotificationSound();
+          if (!isMuted) {
+            playNotificationSound();
+          }
+
+          // Show background notification if website tab is in background, minimized, or screen locked
+          if (document.hidden && !isMuted) {
+            const senderName = msg.senderDisplayName || `@${msg.senderUsername}`;
+            let previewText = msg.content;
+            if (msg.type === 'voice') previewText = '🎙️ Sent a voice note';
+            else if (msg.imageUrl) previewText = '📷 Sent a photo';
+
+            showSystemNotification(`New message from ${senderName}`, {
+              body: previewText || 'Sent a message',
+              icon: msg.senderAvatarUrl || '/favicon.svg',
+              tag: msg.conversationId,
+              onClick: () => {
+                setActiveConversationById(msg.conversationId);
+              },
+            });
+          }
         }
 
         // Instantly dismiss typing indicator for this conversation when a message arrives
@@ -817,14 +860,59 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const togglePin = async (convId: string) => {
     if (!currentUser) return;
-    const updated = await togglePinConversation(currentUser.id, convId);
+
+    // 1. Optimistic update in conversations list
+    setConversations((prev) => {
+      const updated = prev.map((c) => (c.id === convId ? { ...c, isPinned: !c.isPinned } : c));
+      return updated.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+    });
+
+    // 2. Optimistic update in activeConversation
+    setActiveConversation((prev) => {
+      if (prev && prev.id === convId) {
+        return { ...prev, isPinned: !prev.isPinned };
+      }
+      return prev;
+    });
+
+    // 3. Persist to storage and Supabase
+    const updated = await togglePinConversation(currentUser.id, convId, conversationsRef.current);
     setConversations([...updated]);
+    const target = updated.find((c) => c.id === convId);
+    if (target) {
+      setActiveConversation((prev) => (prev?.id === convId ? { ...prev, isPinned: target.isPinned } : prev));
+      showToast(target.isPinned ? 'Conversation pinned to top' : 'Conversation unpinned', 'success');
+    }
   };
 
   const toggleMute = async (convId: string) => {
     if (!currentUser) return;
-    const updated = await toggleMuteConversation(currentUser.id, convId);
+
+    // 1. Optimistic update in conversations list
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, isMuted: !c.isMuted } : c))
+    );
+
+    // 2. Optimistic update in activeConversation
+    setActiveConversation((prev) => {
+      if (prev && prev.id === convId) {
+        return { ...prev, isMuted: !prev.isMuted };
+      }
+      return prev;
+    });
+
+    // 3. Persist to storage and Supabase
+    const updated = await toggleMuteConversation(currentUser.id, convId, conversationsRef.current);
     setConversations([...updated]);
+    const target = updated.find((c) => c.id === convId);
+    if (target) {
+      setActiveConversation((prev) => (prev?.id === convId ? { ...prev, isMuted: target.isMuted } : prev));
+      showToast(target.isMuted ? 'Notifications muted' : 'Notifications unmuted', 'info');
+    }
   };
 
   const clearConversation = async (convId: string) => {

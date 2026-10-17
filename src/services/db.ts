@@ -1111,11 +1111,34 @@ export async function getOrCreateConversation(
   return newConv;
 }
 
-export async function togglePinConversation(currentUserId: string, conversationId: string): Promise<Conversation[]> {
-  const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find((c) => c.id === conversationId);
+export async function togglePinConversation(
+  currentUserId: string,
+  conversationId: string,
+  fallbackConvs?: Conversation[]
+): Promise<Conversation[]> {
+  let convs = getAllStoredConversations(currentUserId);
+  if (convs.length === 0 && fallbackConvs && fallbackConvs.length > 0) {
+    convs = fallbackConvs.map((c) => ({ ...c }));
+  }
+
+  let target = convs.find((c) => c.id === conversationId);
+  if (!target && fallbackConvs) {
+    const found = fallbackConvs.find((c) => c.id === conversationId);
+    if (found) {
+      target = { ...found };
+      convs.unshift(target);
+    }
+  }
+
   if (target) {
     target.isPinned = !target.isPinned;
+    // Pinned conversations should float to the top
+    convs.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
     saveStoredConversations(currentUserId, convs);
 
     const supabase = getSupabaseClient();
@@ -1134,9 +1157,25 @@ export async function togglePinConversation(currentUserId: string, conversationI
   return convs;
 }
 
-export async function toggleMuteConversation(currentUserId: string, conversationId: string): Promise<Conversation[]> {
-  const convs = getAllStoredConversations(currentUserId);
-  const target = convs.find((c) => c.id === conversationId);
+export async function toggleMuteConversation(
+  currentUserId: string,
+  conversationId: string,
+  fallbackConvs?: Conversation[]
+): Promise<Conversation[]> {
+  let convs = getAllStoredConversations(currentUserId);
+  if (convs.length === 0 && fallbackConvs && fallbackConvs.length > 0) {
+    convs = fallbackConvs.map((c) => ({ ...c }));
+  }
+
+  let target = convs.find((c) => c.id === conversationId);
+  if (!target && fallbackConvs) {
+    const found = fallbackConvs.find((c) => c.id === conversationId);
+    if (found) {
+      target = { ...found };
+      convs.unshift(target);
+    }
+  }
+
   if (target) {
     target.isMuted = !target.isMuted;
     saveStoredConversations(currentUserId, convs);
