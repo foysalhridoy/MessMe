@@ -6,7 +6,6 @@ import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
 import { SearchInChatBar } from './SearchInChatBar';
 import { ConversationInfoDrawer } from './ConversationInfoDrawer';
-import { Avatar } from '../common/Avatar';
 import type { Message } from '../../types';
 
 interface ChatAreaProps {
@@ -359,24 +358,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onBackToSidebar }) => {
               })
             )}
 
-            {/* Live Telegram-Style Typing Bubble */}
-            {isOtherTyping && otherParticipant && (
-              <div className="flex items-end gap-2 mt-2.5 mb-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                <div className="w-7 sm:w-8 flex-shrink-0">
-                  <Avatar
-                    name={otherParticipant.displayName || otherParticipant.username}
-                    avatarUrl={otherParticipant.avatarUrl}
-                    seed={otherParticipant.username}
-                    size="sm"
-                  />
-                </div>
-                <div className="bg-white border border-slate-200/80 px-4 py-3 rounded-2xl rounded-tl-xs shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-1.5 select-none">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-1" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-2" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 typing-dot-3" />
-                </div>
-              </div>
-            )}
 
             {/* Dedicated bottom anchor with generous clearance so messages stay cleanly above the composer */}
             <div ref={bottomAnchorRef} className="h-6 sm:h-8 flex-shrink-0" />
