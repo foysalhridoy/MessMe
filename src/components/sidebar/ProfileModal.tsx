@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
-import { Camera, Trash2, Copy, Check, KeyRound, LogOut, ShieldCheck, Sparkles, Upload, Loader2, Ban } from 'lucide-react';
+import { Camera, Trash2, Copy, Check, KeyRound, LogOut, ShieldCheck, Upload, Loader2, Ban } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Avatar } from '../common/Avatar';
-import { PRESET_AVATARS, compressAvatarImage } from '../../lib/avatars';
+import { CuratedAvatarPicker } from '../common/CuratedAvatarPicker';
+import { compressAvatarImage } from '../../lib/avatars';
 import { useChat } from '../../context/useChat';
 import { getStoredUserById } from '../../services/db';
 
@@ -106,8 +107,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
     }
   };
 
-  const isCustomPhoto = Boolean(avatarUrl && avatarUrl.startsWith('data:image'));
-
   return (
     <Modal
       isOpen={isOpen}
@@ -190,36 +189,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
           </div>
         </div>
 
-        {/* Preset Gradients (if user prefers an illustrated avatar) */}
-        {!isCustomPhoto && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Or Pick a Curated Avatar Theme
-              </label>
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-indigo-500" /> Color style
-              </span>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto py-1">
-              {PRESET_AVATARS.map((av) => (
-                <button
-                  key={av.id}
-                  type="button"
-                  onClick={() => setAvatarUrl(av.gradient)}
-                  className={`w-10 h-10 rounded-full ${av.gradient} text-white text-sm font-bold flex items-center justify-center transition-all cursor-pointer ${
-                    avatarUrl === av.gradient
-                      ? 'ring-3 ring-indigo-600 scale-110 shadow-md'
-                      : 'opacity-80 hover:opacity-100 hover:scale-105'
-                  }`}
-                  title={av.name}
-                >
-                  {av.iconText}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Pick a Curated Cartoon Avatar Theme */}
+        <CuratedAvatarPicker
+          selectedAvatarUrl={avatarUrl}
+          onSelectAvatar={(uri) => {
+            setAvatarUrl(uri);
+            showToast('Cartoon avatar chosen', 'info');
+          }}
+        />
 
         {/* Display Name & Bio Edit Inputs */}
         <div className="space-y-4">

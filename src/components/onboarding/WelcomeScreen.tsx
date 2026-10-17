@@ -5,6 +5,7 @@ import { validateUsername } from '../../lib/identity';
 import { useChat } from '../../context/useChat';
 import { SessionRecoveryModal } from './SessionRecoveryModal';
 import { Avatar } from '../common/Avatar';
+import { CuratedAvatarPicker } from '../common/CuratedAvatarPicker';
 import { compressAvatarImage } from '../../lib/avatars';
 
 export const WelcomeScreen: React.FC = () => {
@@ -20,6 +21,7 @@ export const WelcomeScreen: React.FC = () => {
   }>({ checked: false, available: false });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+  const [showCartoonPicker, setShowCartoonPicker] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -221,26 +223,53 @@ export const WelcomeScreen: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-1.5">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer inline-flex items-center gap-1"
               >
                 <Upload className="w-2.5 h-2.5" />
-                <span>{avatarUrl ? 'Change Photo' : 'Add Photo (Optional)'}</span>
+                <span>{avatarUrl ? 'Upload Photo' : 'Upload Photo'}</span>
               </button>
+
+              <span className="text-slate-300 text-[10px]">&bull;</span>
+
+              <button
+                type="button"
+                onClick={() => setShowCartoonPicker((prev) => !prev)}
+                className={`text-[11px] font-semibold transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                  showCartoonPicker ? 'text-indigo-700 font-bold' : 'text-slate-600 hover:text-indigo-600'
+                }`}
+              >
+                <Sparkles className="w-2.5 h-2.5 text-indigo-500" />
+                <span>{showCartoonPicker ? 'Hide Cartoons' : 'Pick Cartoon'}</span>
+              </button>
+
               {avatarUrl && (
                 <button
                   type="button"
                   onClick={() => setAvatarUrl('')}
-                  className="text-xs text-rose-500 hover:text-rose-700 transition-colors cursor-pointer p-0.5"
-                  title="Remove photo"
+                  className="text-xs text-rose-500 hover:text-rose-700 transition-colors cursor-pointer p-0.5 inline-flex items-center gap-0.5"
+                  title="Remove avatar"
                 >
                   <X className="w-3 h-3" />
+                  <span className="text-[10px]">Clear</span>
                 </button>
               )}
             </div>
+
+            {showCartoonPicker && (
+              <div className="w-full mt-2.5">
+                <CuratedAvatarPicker
+                  selectedAvatarUrl={avatarUrl}
+                  onSelectAvatar={(uri) => {
+                    setAvatarUrl(uri);
+                    showToast('Cartoon avatar chosen', 'info');
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3.5">
